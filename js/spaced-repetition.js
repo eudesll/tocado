@@ -25,11 +25,15 @@
 
   var MS_PER_DAY = 86400000;
 
-  /** Índice inteiro do dia (timezone local) para comparações estáveis. */
+  /**
+   * Índice inteiro do dia do calendário LOCAL, ancorado à meia-noite UTC.
+   * Evita o deslocamento de um dia em fusos extremos: toda a aplicação usa
+   * o mesmo índice e o formata novamente em UTC (ver formatDay no app).
+   */
   function dayIndex(date) {
     var d = date ? new Date(date) : new Date();
-    var midnight = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-    return Math.round(midnight.getTime() / MS_PER_DAY);
+    if (isNaN(d.getTime())) return todayIndex();
+    return Math.floor(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / MS_PER_DAY);
   }
 
   function todayIndex() {

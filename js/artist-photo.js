@@ -27,10 +27,7 @@
       '&generator=search&gsrsearch=' + encodeURIComponent(name) +
       '&gsrlimit=1&prop=pageimages|extracts&exintro=1&explaintext=1&exsentences=3' +
       '&pithumbsize=500&format=json&origin=*';
-    return fetch(url).then(function (r) {
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-      return r.json();
-    }).then(function (data) {
+    return Net.getJson(url, { timeout: 8000, cacheTtl: 60 * 60 * 1000 }).then(function (data) {
       var pages = data.query && data.query.pages;
       if (!pages) return null;
       var page = pages[Object.keys(pages)[0]];
@@ -48,10 +45,7 @@
   function itunesArtist(name) {
     var url = 'https://itunes.apple.com/search?term=' + encodeURIComponent(name) +
       '&entity=musicArtist&limit=5&country=BR';
-    return fetch(url).then(function (r) {
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-      return r.json();
-    }).then(function (data) {
+    return Net.getJson(url, { timeout: 8000, cacheTtl: 60 * 60 * 1000 }).then(function (data) {
       var results = data.results || [];
       if (!results.length) return null;
       var wanted = normalize(name);
@@ -64,10 +58,7 @@
   function itunesArt(name) {
     var url = 'https://itunes.apple.com/search?term=' + encodeURIComponent(name) +
       '&entity=album&limit=8&country=BR';
-    return fetch(url).then(function (r) {
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-      return r.json();
-    }).then(function (data) {
+    return Net.getJson(url, { timeout: 8000, cacheTtl: 60 * 60 * 1000 }).then(function (data) {
       var results = data.results || [];
       if (!results.length || !results[0].artworkUrl100) return null;
       var art = results[0].artworkUrl100.replace(/\/\d+x\d+bb(\.[a-z]+)$/i, '/600x600bb$1');
@@ -87,6 +78,7 @@
       var artist = res[1] || {};
       function build(art) {
         return {
+          queryName: name,
           url: wiki.url || (art && art.url) || null,
           title: wiki.title || artist.name || (art && art.title) || null,
           source: wiki.url ? wiki.source : (art ? art.source : (artist.name ? artist.source : null)),
@@ -100,12 +92,15 @@
   }
 
   function loadImage(url) {
-    return new Promise(function (resolve, reject) {
+    return Net.withTimeout(new Promise(function (resolve, reject) {
       var img = new Image();
       img.crossOrigin = 'anonymous';
       img.onload = function () { resolve(img); };
       img.onerror = function () { reject(new Error('Não foi possível carregar a imagem')); };
       img.src = url;
+    }), 8000, null).then(function (img) {
+      if (!img) throw new Error('Tempo esgotado ao carregar a imagem');
+      return img;
     });
   }
 
@@ -122,13 +117,6 @@
     return canvas.toDataURL('image/jpeg', QUALITY);
   }
 
-  function withTimeout(promise, ms, fallback) {
-    return Promise.race([
-      promise,
-      new Promise(function (resolve) { setTimeout(function () { resolve(fallback); }, ms); })
-    ]);
-  }
-
   /** Busca, baixa e compacta. Retorna { url, dataUrl, title, source, bio, genre }. */
   function doFetchInfo(name) {
     return search(name).then(function (found) {
@@ -143,9 +131,9 @@
     });
   }
 
-  /** Nunca deixa o botão "Salvar" preso: no máximo 15 s de espera. */
+  /** Nunca deixa uma operação presa: no máximo 15 s de espera. */
   function fetchInfo(name) {
-    return withTimeout(doFetchInfo(name), 15000, null);
+    return Net.withTimeout(doFetchInfo(name), 15000, null);
   }
 
   global.ArtistPhoto = {
@@ -162,7 +150,12 @@
         var reader = new FileReader();
         reader.onload = function () {
           loadImage(reader.result).then(function (img) {
-            resolve({ dataUrl: toDataUrl(img), url: null, source: 'Enviada pelo usuário' });
+            resolve({
+              dataUrl: toDataUrl(img),
+              url: null,
+              source: 'Enviada pelo usuário',
+              queryName: null
+            });
           }).catch(reject);
         };
         reader.onerror = function () { reject(new Error('Falha ao ler o arquivo.')); };

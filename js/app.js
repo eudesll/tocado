@@ -13,6 +13,8 @@
   var songFilters = { singer: '', genre: '', dueOnly: false, sort: 'title', dir: 'asc' };
   var currentSongId = null;
   var currentVideoId = null;
+  var lastFocusedElement = null;
+  var enrichmentTokens = Object.create(null);
 
   // Estado transitório do fluxo de prática
   var practice = { step: 'setup', songId: null, ratings: {}, result: null };
@@ -21,6 +23,15 @@
   var photoDraft = null;
   var photoSearchToken = 0;
   var photoLastQuery = '';
+
+  var KEY_NAMES = {
+    'C': 'Dó maior', 'C#': 'Dó# maior', 'D': 'Ré maior', 'D#': 'Ré# maior',
+    'E': 'Mi maior', 'F': 'Fá maior', 'F#': 'Fá# maior', 'G': 'Sol maior',
+    'G#': 'Sol# maior', 'A': 'Lá maior', 'A#': 'Lá# maior', 'B': 'Si maior',
+    'Cm': 'Dó menor', 'C#m': 'Dó# menor', 'Dm': 'Ré menor', 'D#m': 'Ré# menor',
+    'Em': 'Mi menor', 'Fm': 'Fá menor', 'F#m': 'Fá# menor', 'Gm': 'Sol menor',
+    'G#m': 'Sol# menor', 'Am': 'Lá menor', 'A#m': 'Lá# menor', 'Bm': 'Si menor'
+  };
 
   /* --------------------------- Utilitários --------------------------- */
   function $(sel, root) { return (root || document).querySelector(sel); }
@@ -31,9 +42,18 @@
     });
   }
 
+  function safeUrl(v, allowImageData) {
+    return Store.safeUrl(v, allowImageData);
+  }
+
   function norm(v) {
     return String(v || '').toLowerCase().normalize('NFD')
       .replace(/[\u0300-\u036f]/g, '').trim();
+  }
+
+  function keyDisplayName(symbol) {
+    if (!symbol) return '';
+    return KEY_NAMES[String(symbol).trim()] || '';
   }
 
   var THEME_KEY = 'repertorio_theme';
@@ -53,6 +73,8 @@
     if (btn) {
       btn.textContent = theme === 'dark' ? '\u2600\uFE0F' : '\uD83C\uDF19';
       btn.title = 'Tema ' + (theme === 'dark' ? 'noturno' : 'claro') + ' — clique para alternar';
+      btn.setAttribute('aria-label', 'Ativar tema ' + (theme === 'dark' ? 'claro' : 'escuro'));
+      btn.setAttribute('aria-pressed', theme === 'dark' ? 'true' : 'false');
     }
     if (persist !== false) {
       try { localStorage.setItem(THEME_KEY, theme); } catch (e) { /* ignore */ }
@@ -75,6 +97,34 @@
     return true;
   }
 
+  /**
+   * Sincronização entre abas: recarrega o estado salvo por outra aba.
+   * Nunca interrompe um formulário aberto; nesse caso, aplica ao fechar.
+   */
+  var externalStatePending = false;
+  var externalSyncTimer = null;
+
+  function applyExternalState() {
+    externalStatePending = false;
+    state = Store.load();
+    state.songs.forEach(ensureCard);
+    if (currentView === 'song' && !getSong(currentSongId)) currentView = 'songs';
+    if (practice.songId && !getSong(practice.songId)) {
+      practice = { step: 'setup', songId: null, ratings: {}, result: null };
+    }
+    render();
+    toast('Dados sincronizados a partir de outra aba.');
+  }
+
+  window.addEventListener('storage', function (e) {
+    if (e.key !== Store.STORAGE_KEY && e.key !== null) return;
+    clearTimeout(externalSyncTimer);
+    externalSyncTimer = setTimeout(function () {
+      if (!$('#modalOverlay').hidden) externalStatePending = true;
+      else applyExternalState();
+    }, 200);
+  });
+
   function getSinger(id) {
     return state.singers.find(function (x) { return x.id === id; });
   }
@@ -89,14 +139,14 @@
   /** Avatar do cantor (foto armazenada em base64, ou URL remota como fallback). */
   function avatarHtml(singer, size) {
     size = size || 48;
-    var src = singer && (singer.photo || singer.photoUrl);
+    var src = safeUrl(singer && (singer.photo || singer.photoUrl), true);
     var style = 'width:' + size + 'px;height:' + size + 'px;flex-shrink:0';
     if (!src) {
       var initial = singer && singer.name ? singer.name.charAt(0).toUpperCase() : '?';
       return '<span class="avatar avatar-placeholder" style="' + style + '">' + escapeHtml(initial) + '</span>';
     }
     return '<img class="avatar" style="' + style + '" src="' + escapeHtml(src) +
-      '" alt="Foto de ' + escapeHtml(singer.name) + '">';
+      '" alt="Foto de ' + escapeHtml(singer.name) + '" loading="lazy">';
   }
 
   function getSong(id) {
@@ -108,6 +158,138 @@
     song.card.songId = song.id;
     if (!Array.isArray(song.sections)) song.sections = [];
     return song.card;
+  }
+
+  /** Atualiza a tela atual se ela mostra a música informada. */
+  function refreshSongView(songId) {
+    if (currentView === 'song' && currentSongId === songId) render();
+    else if (currentView === 'songs' || currentView === 'dashboard') render();
+  }
+
+  /**
+   * Enriquecimento em segundo plano: tom/duração e letra.
+   * Nunca bloqueia o salvamento e nunca sobrescreve valores preenchidos
+   * manualmente nem dados de outra música.
+   */
+  function enrichSong(song, options) {
+    if (!song) return Promise.resolve(null);
+    options = options || {};
+    var wantKey = options.key !== false && !song.key;
+    var wantLyrics = options.lyrics !== false && !song.lyrics;
+    if (!wantKey && !wantLyrics) return Promise.resolve(null);
+
+    var songId = song.id;
+    var title = song.title;
+    var singerId = song.singerId;
+    var singer = singerId ? singerName(singerId) : '';
+    var token = Store.generateId('enrich');
+    enrichmentTokens[songId] = token;
+
+    if (wantKey) song.keyPending = true;
+    if (wantLyrics) song.lyricsPending = true;
+    save();
+    refreshSongView(songId);
+
+    var keyPromise = wantKey ? SongKey.search(singer, title).catch(function () { return null; }) : Promise.resolve(null);
+    var lyricsPromise = wantLyrics ? SongLyrics.search(singer, title).catch(function () { return null; }) : Promise.resolve(null);
+
+    return Promise.all([keyPromise, lyricsPromise]).then(function (res) {
+      var current = getSong(songId);
+      if (!current || enrichmentTokens[songId] !== token) return null;
+      current.keyPending = false;
+      current.lyricsPending = false;
+
+      if (current.title !== title || current.singerId !== singerId) {
+        save();
+        refreshSongView(songId);
+        return null;
+      }
+
+      var changed = false;
+      var keyResult = res[0];
+      if (wantKey && keyResult) {
+        if (keyResult.key && !current.key) {
+          current.key = keyResult.key;
+          current.keyName = keyResult.keyName || keyDisplayName(keyResult.key);
+          current.keySource = keyResult.keySource || 'Estimativa automática';
+          changed = true;
+        }
+        if (keyResult.durationMin && !current.duration) {
+          current.duration = keyResult.durationMin;
+          changed = true;
+        }
+      }
+
+      var lyricsResult = res[1];
+      if (wantLyrics && lyricsResult && lyricsResult.lyrics && !current.lyrics) {
+        current.lyrics = Store.text(lyricsResult.lyrics, Store.LIMITS.lyrics);
+        current.lyricsSource = lyricsResult.source || 'Internet';
+        changed = true;
+      }
+
+      save();
+      refreshSongView(songId);
+      if (changed) toast('Dados complementares atualizados.');
+      return changed ? { key: current.key, lyrics: current.lyrics } : null;
+    }).catch(function () {
+      var current = getSong(songId);
+      if (current && enrichmentTokens[songId] === token) {
+        current.keyPending = false;
+        current.lyricsPending = false;
+        save();
+        refreshSongView(songId);
+      }
+      return null;
+    });
+  }
+
+  /**
+   * Busca foto/gênero/biografia em segundo plano, preservando dados já
+   * preenchidos manualmente e descartando respostas de um nome antigo.
+   */
+  function enrichSinger(singer, expectedName) {
+    if (!singer) return Promise.resolve(null);
+    var singerId = singer.id;
+    var name = expectedName || singer.name;
+    var token = Store.generateId('photo');
+    enrichmentTokens['singer:' + singerId] = token;
+    singer.photoPending = true;
+    save();
+    if (currentView === 'singers') render();
+
+    return ArtistPhoto.fetchInfo(name).then(function (info) {
+      var current = getSinger(singerId);
+      if (!current || enrichmentTokens['singer:' + singerId] !== token) return null;
+      current.photoPending = false;
+      if (current.name !== name) {
+        save();
+        if (currentView === 'singers') render();
+        return null;
+      }
+      if (info) {
+        if (!current.photo && !current.photoUrl) {
+          current.photo = info.dataUrl || null;
+          current.photoUrl = info.url || null;
+          current.photoSource = info.source || null;
+        }
+        if (!current.genre && info.genre) current.genre = info.genre;
+        if (!current.notes && info.bio) current.notes = info.bio;
+      }
+      current.photoMissing = !(current.photo || current.photoUrl);
+      current.photoUpdatedAt = new Date().toISOString();
+      save();
+      if (currentView === 'singers') render();
+      return info;
+    }).catch(function () {
+      var current = getSinger(singerId);
+      if (current && enrichmentTokens['singer:' + singerId] === token) {
+        current.photoPending = false;
+        current.photoMissing = !(current.photo || current.photoUrl);
+        save();
+        if (currentView === 'singers') render();
+      }
+      return null;
+    });
   }
 
   function dueSongs() {
@@ -131,12 +313,6 @@
     if (diff < 0) return 'Atrasada (' + Math.abs(diff) + 'd)';
     if (diff === 0) return 'Para hoje';
     return 'Em ' + SRS.formatInterval(diff);
-  }
-
-  function masteryBar(song) {
-    var m = SRS.mastery(ensureCard(song));
-    return '<div class="mastery-row"><div class="progress"><span style="width:' + m + '%"></span></div>' +
-      '<span class="mastery-num">' + m + '%</span></div>';
   }
 
   function difficultyStars(n) {
@@ -173,6 +349,7 @@
   /* --------------------------- Modal --------------------------- */
   function openModal(opts) {
     modalToken++;
+    lastFocusedElement = document.activeElement;
     var submit = $('#modalSubmit');
     submit.disabled = false;   // nunca herda o estado "carregando" do modal anterior
     submit.hidden = false;
@@ -181,17 +358,56 @@
     $('#modalBody').innerHTML = opts.bodyHtml || '';
     modalSubmitHandler = opts.onSubmit || null;
     $('#modalOverlay').hidden = false;
+    document.body.classList.add('modal-open');
     var first = $('#modalBody input, #modalBody select, #modalBody textarea');
-    if (first) setTimeout(function () { first.focus(); }, 30);
+    setTimeout(function () {
+      if (first && document.contains(first)) first.focus();
+      else {
+        var modal = $('.modal');
+        if (modal) modal.focus();
+      }
+    }, 30);
   }
 
   function closeModal() {
     modalToken++;              // retornos pendentes de modais antigos são ignorados
     photoSearchToken++;
     $('#modalOverlay').hidden = true;
+    document.body.classList.remove('modal-open');
     modalSubmitHandler = null;
     var submit = $('#modalSubmit');
     submit.disabled = false;
+    if (lastFocusedElement && document.contains(lastFocusedElement) &&
+        typeof lastFocusedElement.focus === 'function') {
+      lastFocusedElement.focus();
+    }
+    lastFocusedElement = null;
+    if (externalStatePending) applyExternalState();
+  }
+
+  function trapModalFocus(e) {
+    if (e.key !== 'Tab' || $('#modalOverlay').hidden) return;
+    var modal = $('.modal');
+    if (!modal) return;
+    var focusables = Array.prototype.filter.call(
+      modal.querySelectorAll('a[href], button:not([disabled]), input:not([disabled]), ' +
+        'select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'),
+      function (el) { return el.offsetParent !== null || el === document.activeElement; }
+    );
+    if (!focusables.length) {
+      e.preventDefault();
+      modal.focus();
+      return;
+    }
+    var first = focusables[0];
+    var last = focusables[focusables.length - 1];
+    if (e.shiftKey && (document.activeElement === first || !modal.contains(document.activeElement))) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault();
+      first.focus();
+    }
   }
 
   $('#modalForm').addEventListener('submit', function (e) {
@@ -214,11 +430,20 @@
     if (!viewMeta[view]) return;
     currentView = view;
     document.querySelectorAll('.nav-item').forEach(function (b) {
-      b.classList.toggle('active', b.dataset.view === view);
+      var active = b.dataset.view === view;
+      b.classList.toggle('active', active);
+      if (active) b.setAttribute('aria-current', 'page');
+      else b.removeAttribute('aria-current');
     });
     $('#viewTitle').textContent = viewMeta[view].title;
     $('#viewSubtitle').textContent = viewMeta[view].sub;
     render();
+    window.scrollTo(0, 0);
+    var heading = currentView === 'song' ? $('#viewContainer h1') : $('#viewTitle');
+    if (heading) {
+      heading.setAttribute('tabindex', '-1');
+      try { heading.focus({ preventScroll: true }); } catch (err) { heading.focus(); }
+    }
   }
 
   function render() {
@@ -251,6 +476,9 @@
       statCard('Músicas', state.songs.length) +
       statCard('Cantores', state.singers.length) +
       statCard('Gêneros', Object.keys(generos).length) +
+      statCard('Revisões pendentes', due.length, due.length ? 'warning' : '') +
+      statCard('Domínio médio', avgMastery() + '%', 'primary') +
+      statCard('Sequência', computeStreak() + (computeStreak() === 1 ? ' dia' : ' dias')) +
       '</div>';
 
     html += '<div class="panel"><h3>Atividade</h3>' + activityCalendar(allActivityEvents(), 16) + '</div>';
@@ -264,13 +492,31 @@
       }).slice(0, 5);
       html += '<div class="song-list">' + recentes.map(function (s) {
         return '<div class="song-row"><div class="song-main">' +
-          '<div class="song-title">' + escapeHtml(s.title) + '</div>' +
+          '<button type="button" class="song-name-link" data-action="open-song" data-id="' + escapeHtml(s.id) + '">' +
+          '<span class="song-title-text">' + escapeHtml(s.title) + '</span></button>' +
           '<div class="song-artist">' + escapeHtml(singerName(s.singerId)) +
           ' · Adicionada em ' + formatDateTime(s.createdAt) + '</div></div>' +
           '<div class="song-meta">' +
           (s.key ? '<span class="chip key">' + escapeHtml(s.key) + '</span>' : '') +
           (s.genre ? '<span class="chip">' + escapeHtml(s.genre) + '</span>' : '') +
           '</div></div>';
+      }).join('') + '</div>';
+    }
+    html += '</div>';
+
+    var sessions = state.sessions.slice().sort(function (a, b) {
+      return (Date.parse(b.date) || 0) - (Date.parse(a.date) || 0);
+    }).slice(0, 5);
+    html += '<div class="section"><h2 class="section-title">Histórico recente de práticas</h2>';
+    if (!sessions.length) {
+      html += '<div class="empty">Nenhuma sessão de prática registrada.</div>';
+    } else {
+      html += '<div class="session-list">' + sessions.map(function (session) {
+        var title = session.songTitle || (getSong(session.songId) || {}).title || 'Música removida';
+        return '<div class="session-row"><div class="session-main"><strong>' + escapeHtml(title) + '</strong>' +
+          '<div class="session-meta">' + formatDateTime(session.date) +
+          ' · Nota média ' + Number(session.avgQuality || 0).toFixed(1) + '/5' +
+          ' · Novo intervalo: ' + SRS.formatInterval(session.newInterval) + '</div></div></div>';
       }).join('') + '</div>';
     }
     html += '</div>';
@@ -282,9 +528,9 @@
     container.innerHTML = html;
   }
 
-  function statCard(label, value) {
+  function statCard(label, value, tone) {
     return '<div class="stat"><div class="stat-label">' + label + '</div>' +
-      '<div class="stat-value">' + value + '</div></div>';
+      '<div class="stat-value' + (tone ? ' ' + tone : '') + '">' + value + '</div></div>';
   }
 
   /* =========================== CANTORES =========================== */
@@ -297,18 +543,20 @@
       html = '<div class="singer-list">';
       state.singers.forEach(function (sg) {
         var count = state.songs.filter(function (s) { return s.singerId === sg.id; }).length;
-        html += '<div class="singer-row"><div class="singer-head clickable" role="button" tabindex="0" ' +
-          'title="Ver músicas de ' + escapeHtml(sg.name) + '" data-action="filter-singer" data-id="' + sg.id + '">' + avatarHtml(sg, 44) +
-          '<div class="singer-info"><strong>' + escapeHtml(sg.name) + '</strong>' +
-          '<div class="small muted">' + count + (count === 1 ? ' música' : ' músicas') +
-          (sg.genre ? ' · ' + escapeHtml(sg.genre) : '') + '</div>' +
-          (!singerHasPhoto(sg) ? '<div class="tag warning">&#9888; ' +
-            (sg.photoMissing ? 'Foto não encontrada' : 'Sem foto') + '</div>' : '') +
-          '</div></div>' +
+        var pending = !!sg.photoPending;
+        html += '<div class="singer-row"><button type="button" class="singer-head clickable" ' +
+          'title="Ver músicas de ' + escapeHtml(sg.name) + '" data-action="filter-singer" data-id="' + escapeHtml(sg.id) + '">' + avatarHtml(sg, 44) +
+          '<span class="singer-info"><strong>' + escapeHtml(sg.name) + '</strong>' +
+          '<span class="small muted">' + count + (count === 1 ? ' música' : ' músicas') +
+          (sg.genre ? ' · ' + escapeHtml(sg.genre) : '') + '</span>' +
+          (pending ? '<span class="tag pending">Buscando foto...</span>' :
+            (!singerHasPhoto(sg) ? '<span class="tag warning">&#9888; ' +
+              (sg.photoMissing ? 'Foto não encontrada' : 'Sem foto') + '</span>' : '')) +
+          '</span></button>' +
           '<div class="singer-actions">' +
-          (!singerHasPhoto(sg) ? '<button class="btn btn-sm" data-action="retry-photo" data-id="' + sg.id + '">Tentar foto</button>' : '') +
-          '<button class="btn btn-sm" data-action="edit-singer" data-id="' + sg.id + '">Editar</button>' +
-          '<button class="btn btn-sm btn-danger" data-action="delete-singer" data-id="' + sg.id + '">Excluir</button>' +
+          (!singerHasPhoto(sg) && !pending ? '<button class="btn btn-sm" data-action="retry-photo" data-id="' + escapeHtml(sg.id) + '">Tentar foto</button>' : '') +
+          '<button class="btn btn-sm" data-action="edit-singer" data-id="' + escapeHtml(sg.id) + '">Editar</button>' +
+          '<button class="btn btn-sm btn-danger" data-action="delete-singer" data-id="' + escapeHtml(sg.id) + '">Excluir</button>' +
           '</div></div>';
       });
       html += '</div>';
@@ -329,7 +577,7 @@
     f.elements.photoSource.value = (photoDraft && photoDraft.source) || '';
     var preview = $('#photoPreview');
     if (preview) {
-      var src = photoDraft && (photoDraft.dataUrl || photoDraft.url);
+      var src = safeUrl(photoDraft && (photoDraft.dataUrl || photoDraft.url), true);
       preview.innerHTML = src
         ? '<img src="' + escapeHtml(src) + '" alt="Prévia da foto">'
         : '<span>&#128100;</span>';
@@ -363,12 +611,13 @@
     return ArtistPhoto.fetchInfo(name).then(function (r) {
       if (token !== photoSearchToken) return null; // nome mudou durante a busca
       if (!r || (!r.url && !r.genre && !r.bio)) {
-        photoDraft = { dataUrl: null, url: null, source: null, genre: '', bio: '', missing: true };
+        photoDraft = { dataUrl: null, url: null, source: null, genre: '', bio: '', missing: true, queryName: name };
         applyPhotoDraft();
         setPhotoStatus('Nenhum dado encontrado para "' + name + '". Um aviso será exibido no cadastro.');
         return null;
       }
       r.missing = !r.url;
+      r.queryName = name;
       photoDraft = r;
       applyPhotoDraft();
       setPhotoStatus('Dados obtidos: ' +
@@ -378,7 +627,7 @@
       return r;
     }).catch(function (e) {
       if (token === photoSearchToken) {
-        photoDraft = { dataUrl: null, url: null, source: null, genre: '', bio: '', missing: true };
+        photoDraft = { dataUrl: null, url: null, source: null, genre: '', bio: '', missing: true, queryName: name };
         applyPhotoDraft();
         setPhotoStatus('Não foi possível buscar os dados (' + e.message + '). Um aviso será exibido no cadastro.');
       }
@@ -399,7 +648,8 @@
       source: sg.photoSource || null,
       genre: sg.genre || '',
       bio: sg.notes || '',
-      missing: !!sg.photoMissing
+      missing: !!sg.photoMissing,
+      queryName: sg.name || ''
     };
     photoSearchToken++;
     photoLastQuery = sg.name || '';
@@ -407,8 +657,8 @@
     var body =
       '<div class="callout accent"><strong>Preenchimento automático:</strong> informe apenas o nome. ' +
       'Enquanto você digita, buscamos foto, gênero e biografia na Wikipédia e na Apple Music.</div>' +
-      '<div class="field"><label>Nome do artista *</label>' +
-      '<input name="name" required value="' + escapeHtml(sg.name || '') + '" placeholder="Ex.: Maria Bethânia"></div>' +
+      '<div class="field"><label for="singerNameInput">Nome do artista *</label>' +
+      '<input name="name" id="singerNameInput" required value="' + escapeHtml(sg.name || '') + '" placeholder="Ex.: Maria Bethânia"></div>' +
       '<div class="field"><label>Foto do artista <span class="auto-tag">automático</span></label>' +
       '<div class="photo-editor">' +
       '<div class="photo-preview" id="photoPreview"><span>&#128100;</span></div>' +
@@ -428,45 +678,43 @@
         var f = e.target;
         var name = f.elements.name.value.trim();
         if (!name) return;
-        var submit = $('#modalSubmit');
-        var token = modalToken;
-        submit.disabled = true;
-        submit.textContent = 'Buscando dados...';
 
-        function finish() {
-          if (token !== modalToken) return; // modal foi fechado/trocado
-          submit.disabled = false;
-          submit.textContent = 'Salvar';
-          var photo = {
-            photo: (photoDraft && photoDraft.dataUrl) || null,
-            photoUrl: (photoDraft && photoDraft.url) || null,
-            photoSource: (photoDraft && photoDraft.source) || null,
-            photoMissing: !!(photoDraft && photoDraft.missing) ||
-              !(photoDraft && (photoDraft.dataUrl || photoDraft.url)),
-            photoUpdatedAt: new Date().toISOString()
-          };
-          var common = {
-            name: name,
-            genre: (photoDraft && photoDraft.genre) || '',
-            notes: (photoDraft && photoDraft.bio) || ''
-          };
-          if (existing) {
-            Object.assign(existing, common, photo);
-          } else {
-            state.singers.push(Object.assign({ id: Store.generateId('singer') }, common, photo));
-          }
-          var savedSinger = existing || state.singers[state.singers.length - 1];
-          save(); closeModal(); render();
-          if (typeof onSaved === 'function') {
-            onSaved(savedSinger);
-          } else {
-            toast('Cantor salvo' + ((photo.photo || photo.photoUrl) ? ' com foto.' : ' (sem foto).'));
-          }
+        // Só reaproveita o rascunho se ele pertence ao nome atual. Caso
+        // contrário, evita salvar foto/biografia de outro artista.
+        var draftMatches = photoDraft && norm(photoDraft.queryName || '') === norm(name);
+        var draft = draftMatches ? photoDraft : null;
+        var nameChanged = !!(existing && norm(existing.name) !== norm(name));
+        var inherited = existing && !nameChanged ? existing : {};
+
+        var photo = {
+          photo: (draft && draft.dataUrl) || inherited.photo || null,
+          photoUrl: (draft && draft.url) || inherited.photoUrl || null,
+          photoSource: (draft && draft.source) || inherited.photoSource || null,
+          photoMissing: !((draft && (draft.dataUrl || draft.url)) ||
+            inherited.photo || inherited.photoUrl),
+          photoUpdatedAt: new Date().toISOString()
+        };
+        var common = {
+          name: name,
+          genre: (draft && draft.genre) || inherited.genre || '',
+          notes: (draft && draft.bio) || inherited.notes || ''
+        };
+
+        var savedSinger;
+        if (existing) {
+          Object.assign(existing, common, photo);
+          savedSinger = existing;
+        } else {
+          savedSinger = Object.assign({ id: Store.generateId('singer') }, common, photo);
+          state.singers.push(savedSinger);
         }
 
-        var hasPhoto = photoDraft && (photoDraft.dataUrl || photoDraft.url);
-        if (hasPhoto) finish();
-        else searchPhoto(false).then(finish);
+        var needsEnrichment = (!photo.photo && !photo.photoUrl) || nameChanged ||
+          !common.genre || !common.notes;
+        save(); closeModal(); render();
+        if (typeof onSaved === 'function') onSaved(savedSinger);
+        else toast('Cantor salvo' + ((photo.photo || photo.photoUrl) ? ' com foto.' : '. Buscando dados...'));
+        if (needsEnrichment) enrichSinger(savedSinger, name);
       }
     });
 
@@ -522,9 +770,11 @@
   }
 
   function playerPosterHtml(video) {
+    var thumb = safeUrl(video && video.thumb);
+    var href = safeUrl(video && video.url) || YouTube.watchUrl(video.id);
     return '<div class="player-poster">' +
-      '<img src="' + escapeHtml(video.thumb) + '" alt="">' +
-      '<a class="poster-play" href="' + escapeHtml(video.url) + '" target="_blank" rel="noopener noreferrer" ' +
+      (thumb ? '<img src="' + escapeHtml(thumb) + '" alt="" loading="lazy">' : '') +
+      '<a class="poster-play" href="' + escapeHtml(href) + '" target="_blank" rel="noopener noreferrer" ' +
       'title="Assistir no YouTube">&#9654;</a>' +
       '<div class="poster-note">Abra o vídeo em uma nova aba para assistir</div>' +
       '</div>';
@@ -605,7 +855,13 @@
     }
 
     var cols = 'grid-template-columns:repeat(' + columns + ',minmax(0,1fr))';
+    var totalEvents = (events || []).length;
+    var activeDays = Object.keys(byDay).length;
     return '<div class="calendar">' +
+      '<p class="sr-only">Calendário de atividade: ' + totalEvents +
+      (totalEvents === 1 ? ' atividade registrada em ' : ' atividades registradas em ') +
+      activeDays + (activeDays === 1 ? ' dia.' : ' dias.') + '</p>' +
+      '<div aria-hidden="true">' +
       '<div class="cal-months" style="' + cols + '">' + months + '</div>' +
       '<div class="cal-body">' +
       '<div class="cal-weekdays"><span></span><span>Seg</span><span></span><span>Qua</span><span></span><span>Sex</span><span></span></div>' +
@@ -613,7 +869,7 @@
       '<div class="cal-legend">Menos ' +
       '<span class="cal-cell l0"></span><span class="cal-cell l1"></span><span class="cal-cell l2"></span>' +
       '<span class="cal-cell l3"></span><span class="cal-cell l4"></span> Mais</div>' +
-      '</div>';
+      '</div></div>';
   }
 
   function songSortValue(s, key) {
@@ -623,14 +879,16 @@
       case 'key': return s.key || '';
       case 'duration': return Number(s.duration) || 0;
       case 'created': return Date.parse(s.createdAt) || 0;
-      case 'review': return SRS.isDue(ensureCard(s)) ? 1 : 0;
+      case 'review': return ensureCard(s).due == null ? 0 : ensureCard(s).due;
       default: return s.title || '';
     }
   }
 
   function sortHeader(label, key) {
-    var arrow = songFilters.sort === key ? (songFilters.dir === 'asc' ? ' ▲' : ' ▼') : '';
-    return '<th><button type="button" class="th-btn' + (songFilters.sort === key ? ' active' : '') +
+    var active = songFilters.sort === key;
+    var arrow = active ? (songFilters.dir === 'asc' ? ' ▲' : ' ▼') : '';
+    return '<th aria-sort="' + (active ? (songFilters.dir === 'asc' ? 'ascending' : 'descending') : 'none') + '">' +
+      '<button type="button" class="th-btn' + (active ? ' active' : '') +
       '" data-action="sort" data-sort="' + key + '">' + label + arrow + '</button></th>';
   }
 
@@ -644,13 +902,13 @@
     var genreKeys = Object.keys(genres).sort(function (a, b) { return a.localeCompare(b, 'pt-BR'); });
 
     var filterBar = '<div class="filters">' +
-      '<input id="searchInput" class="search" placeholder="Buscar música..." value="' + escapeHtml(searchTerm) + '">' +
-      '<select id="filterSinger" class="search"><option value="">Todos os cantores</option>' +
+      '<input id="searchInput" class="search" aria-label="Buscar música" placeholder="Buscar música..." value="' + escapeHtml(searchTerm) + '">' +
+      '<select id="filterSinger" class="search" aria-label="Filtrar por cantor"><option value="">Todos os cantores</option>' +
       state.singers.map(function (sg) {
         return '<option value="' + escapeHtml(sg.id) + '"' + (songFilters.singer === sg.id ? ' selected' : '') + '>' +
           escapeHtml(sg.name) + '</option>';
       }).join('') + '</select>' +
-      '<select id="filterGenre" class="search"><option value="">Todos os gêneros</option>' +
+      '<select id="filterGenre" class="search" aria-label="Filtrar por gênero"><option value="">Todos os gêneros</option>' +
       genreKeys.map(function (g) {
         return '<option value="' + escapeHtml(g) + '"' + (songFilters.genre === g ? ' selected' : '') + '>' + escapeHtml(g) + '</option>';
       }).join('') + '</select>' +
@@ -663,7 +921,8 @@
       if (songFilters.genre && s.genre !== songFilters.genre) return false;
       if (songFilters.dueOnly && !SRS.isDue(ensureCard(s))) return false;
       if (!searchTerm) return true;
-      var hay = norm(s.title + ' ' + singerName(s.singerId) + ' ' + (s.genre || '') + ' ' + (s.key || ''));
+      var hay = norm(s.title + ' ' + singerName(s.singerId) + ' ' + (s.genre || '') +
+        ' ' + (s.key || '') + ' ' + (s.lyrics || ''));
       return hay.indexOf(norm(searchTerm)) !== -1;
     });
 
@@ -697,6 +956,7 @@
       sortHeader('Tom', 'key') +
       sortHeader('Duração', 'duration') +
       sortHeader('Revisão', 'review') +
+      sortHeader('Adicionada em', 'created') +
       '<th style="text-align:right">Ações</th>' +
       '</tr></thead><tbody>';
 
@@ -704,21 +964,22 @@
       var card = ensureCard(s);
       var due = SRS.isDue(card);
       html += '<tr>' +
-        '<td><strong class="song-name-link" data-action="open-song" data-id="' + escapeHtml(s.id) + '" ' +
+        '<td><button type="button" class="song-name-link" data-action="open-song" data-id="' + escapeHtml(s.id) + '" ' +
         'title="Ver resumo da música">' +
         '<span class="song-title-text">' + escapeHtml(s.title) + '</span>' +
-        ((s.youtubeVideos || []).length ? '<span class="icon-video" title="Possui vídeos">&#9654;</span>' : '') +
-        '</strong></td>' +
+        ((s.youtubeVideos || []).length ? '<span class="icon-video" title="Possui vídeos" aria-hidden="true">&#9654;</span>' : '') +
+        '</button></td>' +
         '<td>' + escapeHtml(singerName(s.singerId)) + '</td>' +
         '<td>' + (s.genre ? escapeHtml(s.genre) : '<span class="muted">—</span>') + '</td>' +
         '<td>' + (s.key ? '<span class="chip key" title="' + escapeHtml(s.keySource || '') + '">' + escapeHtml(s.key) + '</span>' : '<span class="muted">—</span>') + '</td>' +
         '<td class="nowrap">' + (s.duration ? formatDuration(s.duration) : '<span class="muted">—</span>') + '</td>' +
-        '<td>' + (due ? '<span class="dot-review" title="Revisão pendente"></span> Pendente' : '<span class="muted">Em dia</span>') + '</td>' +
+        '<td>' + (due ? '<span class="dot-review" title="Revisão pendente" aria-hidden="true"></span> Pendente' : '<span class="muted">Em dia</span>') + '</td>' +
+        '<td class="nowrap">' + formatDateTime(s.createdAt) + '</td>' +
         '<td class="right nowrap">' +
-        (due ? '<button class="btn btn-sm" data-action="practice-song" data-id="' + s.id + '">Revisar</button> ' : '') +
-        '<button class="btn btn-sm" data-action="ver-videos" data-id="' + s.id + '">Vídeos</button> ' +
-        '<button class="btn btn-sm" data-action="edit-song" data-id="' + s.id + '">Editar</button> ' +
-        '<button class="btn btn-sm btn-danger" data-action="delete-song" data-id="' + s.id + '">Excluir</button>' +
+        (due ? '<button class="btn btn-sm" data-action="practice-song" data-id="' + escapeHtml(s.id) + '">Revisar</button> ' : '') +
+        '<button class="btn btn-sm" data-action="ver-videos" data-id="' + escapeHtml(s.id) + '">Vídeos</button> ' +
+        '<button class="btn btn-sm" data-action="edit-song" data-id="' + escapeHtml(s.id) + '">Editar</button> ' +
+        '<button class="btn btn-sm btn-danger" data-action="delete-song" data-id="' + escapeHtml(s.id) + '">Excluir</button>' +
         '</td></tr>';
     });
     html += '</tbody></table></div>';
@@ -729,32 +990,40 @@
   function renderSongSummary(container, actions) {
     var song = getSong(currentSongId);
     if (!song) { navigate('songs'); return; }
-    var vids = song.youtubeVideos || [];
+    var vids = (song.youtubeVideos || []).filter(function (v) {
+      return YouTube.parseVideoId(v && v.id);
+    });
+    if (currentVideoId && !YouTube.parseVideoId(currentVideoId)) currentVideoId = null;
     var stillThere = vids.some(function (v) { return v.id === currentVideoId; });
     if (!stillThere) currentVideoId = vids.length ? vids[0].id : null;
     var card = ensureCard(song);
     var singer = getSinger(song.singerId);
 
     var hasVideos = vids.length > 0;
-    var cover = vids.length && vids[0].thumb ? vids[0].thumb : null;
+    var cover = vids.length && vids[0].thumb ? safeUrl(vids[0].thumb) : null;
+    var searching = !!(song.keyPending || song.lyricsPending);
+    var needsData = !searching && (!song.key || !song.lyrics);
 
     // Cabeçalho no mesmo padrão enxuto das outras telas.
     var html = '<div class="song-summary">' +
       '<div class="summary-top">' +
       '<div class="summary-top-main">' +
-      (cover ? '<img class="summary-cover" src="' + escapeHtml(cover) + '" alt="">' : '') +
+      (cover ? '<img class="summary-cover" src="' + escapeHtml(cover) + '" alt="" loading="lazy">' : '') +
       '<div><h1 class="summary-title">' + escapeHtml(song.title) + '</h1>' +
       '<p class="view-subtitle">' + escapeHtml(singerName(song.singerId)) +
       ' · Adicionada em ' + formatDateTime(song.createdAt) + '</p></div></div>' +
       '<div class="summary-actions">' +
       '<button class="btn" data-action="goto-songs">&larr; Voltar às músicas</button>' +
+      (needsData ? '<button class="btn" data-action="enrich-song" data-id="' + escapeHtml(song.id) + '">Buscar tom/letra</button>' : '') +
       '<button class="btn" data-action="manage-videos">Vídeos</button>' +
       '<button class="btn btn-primary" data-action="edit-song" data-id="' + escapeHtml(song.id) + '">Editar</button>' +
       '</div></div>' +
       '<div class="summary-meta">' +
       (song.genre ? '<span class="chip">' + escapeHtml(song.genre) + '</span>' : '') +
-      (song.key ? '<span class="chip key" title="' + escapeHtml(song.keySource || '') + '">' + escapeHtml(song.key) + '</span>' : '') +
+      (song.key ? '<span class="chip key" title="' + escapeHtml(song.keySource || '') + '">' + escapeHtml(song.key) + '</span>' :
+        (song.keyPending ? '<span class="chip pending">Tom: buscando...</span>' : '')) +
       (song.duration ? '<span class="chip">' + formatDuration(song.duration) + '</span>' : '') +
+      (song.difficulty ? '<span class="chip" title="Dificuldade">' + difficultyStars(song.difficulty) + '</span>' : '') +
       '<span class="chip">' + vids.length + (vids.length === 1 ? ' vídeo' : ' vídeos') + '</span>' +
       '<span class="chip">Domínio ' + SRS.mastery(card) + '%</span>' +
       '<span class="chip' + (SRS.isDue(card) ? ' warning' : '') + '">' +
@@ -765,7 +1034,8 @@
     html += '<div class="panel"><h3>Informações</h3>' +
       '<p class="small muted">Adicionada em ' + formatDateTime(song.createdAt) + '</p>' +
       '<p class="small muted">Gênero: ' + escapeHtml(song.genre || '—') + ' · Tom: ' + escapeHtml(song.key || '—') +
-      ' · Duração: ' + (song.duration ? formatDuration(song.duration) : '—') + '</p>' +
+      ' · Duração: ' + (song.duration ? formatDuration(song.duration) : '—') +
+      ' · Dificuldade: ' + difficultyStars(song.difficulty) + '</p>' +
       (song.notes ? '<p class="small">' + escapeHtml(song.notes) + '</p>' : '') +
       '<div class="callout small"><strong>Revisão:</strong> ' + escapeHtml(dueLabel(card)) +
       ' · Domínio estimado ' + SRS.mastery(card) + '%</div></div>';
@@ -779,7 +1049,9 @@
       (song.lyrics
         ? '<pre class="lyrics-text">' + escapeHtml(song.lyrics) + '</pre>' +
           (song.lyricsSource ? '<p class="small muted">Fonte: ' + escapeHtml(song.lyricsSource) + '</p>' : '')
-        : '<div class="empty">Letra não disponível. Ela é carregada automaticamente quando a música é cadastrada com internet.</div>') +
+        : '<div class="empty">' + (song.lyricsPending
+            ? 'Buscando a letra na internet...'
+            : 'Letra não disponível. Use Editar para colar a letra ou buscar novamente.') + '</div>') +
       '</div>';
 
     // 4. Vídeos (o player só existe quando há vídeo anexado)
@@ -801,7 +1073,7 @@
         '<div class="video-choices">' + vids.map(function (v) {
           return '<button type="button" class="video-choice' + (v.id === currentVideoId ? ' active' : '') +
             '" data-action="play-video" data-video="' + escapeHtml(v.id) + '">' +
-            '<img src="' + escapeHtml(v.thumb) + '" alt="">' +
+            '<img src="' + escapeHtml(safeUrl(v.thumb)) + '" alt="" loading="lazy">' +
             '<span><strong>' + escapeHtml(v.title) + '</strong>' +
             '<small>' + escapeHtml(v.channel || 'YouTube') + '</small></span></button>';
         }).join('') + '</div>' +
@@ -810,7 +1082,7 @@
         '</div></div>';
     } else {
       html += '<div class="panel"><p class="muted small">Nenhum vídeo anexado.</p>' +
-        '<a class="btn" target="_blank" rel="noopener noreferrer" href="' + escapeHtml(videoSearchUrl(song)) + '">Buscar no YouTube</a> ' +
+        '<a class="btn" target="_blank" rel="noopener noreferrer" href="' + escapeHtml(safeUrl(videoSearchUrl(song))) + '">Buscar no YouTube</a> ' +
         '<button class="btn" data-action="manage-videos">Adicionar vídeo</button></div>';
     }
     html += '</div></div>';
@@ -827,15 +1099,22 @@
 
     var keyDraft = { key: s.key || '', keyName: s.keyName || '', keySource: s.keySource || '' };
     var keyToken = 0;
+    var keyEdited = false;
     var lyricsDraft = { lyrics: s.lyrics || '', source: s.lyricsSource || '' };
     var lyricsToken = 0;
+    var lyricsEdited = false;
     var modalAtStart = modalToken;
+    var sectionsDraft = Array.isArray(s.sections) ? s.sections.map(function (sec) {
+      return {
+        id: sec.id || Store.generateId('section'),
+        name: sec.name || '',
+        confidence: Number(sec.confidence) || 3
+      };
+    }) : [];
 
     function applyKeyDraft() {
-      var el = $('#autoKey');
-      if (el) el.textContent = keyDraft.key
-        ? keyDraft.key + (keyDraft.keyName ? ' · ' + keyDraft.keyName : '')
-        : 'Não encontrado';
+      var input = $('#modalForm [name=key]');
+      if (input && !keyEdited) input.value = keyDraft.key || '';
       var st = $('#keyStatus');
       if (st) st.textContent = keyDraft.keySource
         ? 'Fonte: ' + keyDraft.keySource
@@ -843,17 +1122,19 @@
     }
 
     function applyLyricsDraft() {
+      var textarea = $('#modalForm [name=lyrics]');
+      if (textarea && !lyricsEdited) textarea.value = lyricsDraft.lyrics || '';
       var el = $('#lyricsStatus');
       if (!el) return;
       el.textContent = lyricsDraft.lyrics
         ? 'Letra carregada (' + (lyricsDraft.source || 'internet') + ') · ' + lyricsDraft.lyrics.length + ' caracteres'
-        : 'Letra não encontrada — você pode adicionar depois.';
+        : 'Letra não encontrada — você pode colar ou editar a letra acima.';
     }
 
     /** Busca a letra na internet e guarda no rascunho da música. */
     function searchLyrics() {
       var f = $('#modalForm');
-      if (!f || lyricsDraft.lyrics) return Promise.resolve(null);
+      if (!f || lyricsDraft.lyrics || lyricsEdited) return Promise.resolve(null);
       var title = f.elements.title.value.trim();
       var sid = selectedSingerId;
       if (!title || !sid) return Promise.resolve(null);
@@ -866,7 +1147,7 @@
           lyricsDraft = { lyrics: r.lyrics, source: r.source };
           applyLyricsDraft();
         } else if (el) {
-          el.textContent = 'Letra não encontrada — você pode adicionar depois.';
+          el.textContent = 'Letra não encontrada — você pode colar ou editar a letra acima.';
         }
         return r;
       });
@@ -879,30 +1160,34 @@
       if (sg && sg.genre) f.elements.genre.value = sg.genre;
     }
 
-    /** Reconhece o nome digitado no autocomplete e dispara a busca. */
+    /** Reconhece exatamente o nome digitado no autocomplete. */
     var lastResolved = '';
     function resolveSinger() {
       var f = $('#modalForm');
       if (!f) return;
       var typed = (f.elements.singerName.value || '').trim();
       var n = norm(typed);
-      var match = n ? (state.singers.find(function (sg) { return norm(sg.name) === n; }) ||
-        state.singers.find(function (sg) { return norm(sg.name).indexOf(n) === 0; })) : null;
+      // Só associa automaticamente quando o nome é exato. Prefixos exigem
+      // escolha explícita na lista, evitando vincular a música ao cantor errado.
+      var match = n ? state.singers.find(function (sg) { return norm(sg.name) === n; }) : null;
       var signature = n + '|' + (match ? match.id : '');
       if (signature === lastResolved) return;
       lastResolved = signature;
 
       selectedSingerId = match ? match.id : null;
       var hint = $('#singerHint');
-      if (hint) hint.textContent = typed && !match
-        ? 'Cantor não cadastrado — escolha "+ Cadastrar" na sugestão.'
-        : '';
+      if (hint) {
+        if (typed && !match) hint.textContent = 'Cantor não cadastrado — escolha uma sugestão ou "+ Cadastrar".';
+        else if (typed && match) hint.textContent = '';
+        else hint.textContent = '';
+      }
       if (match) {
         applyGenreFromSinger();
         searchKey();
         searchLyrics();
-      } else if ($('#keyStatus')) {
-        $('#keyStatus').textContent = 'Selecione um cantor para pesquisar o tom e a duração.';
+      } else {
+        var ks = $('#keyStatus');
+        if (ks) ks.textContent = 'Selecione um cantor para pesquisar o tom e a duração.';
       }
     }
 
@@ -910,6 +1195,7 @@
     function searchKey() {
       var f = $('#modalForm');
       if (!f) return Promise.resolve(null);
+      if (keyEdited || keyDraft.key) return Promise.resolve(null);
       var title = f.elements.title.value.trim();
       var sid = selectedSingerId;
       if (!title || !sid) {
@@ -927,34 +1213,48 @@
           return null;
         }
         keyDraft = r;
-        applyKeyDraft();
+        if (!keyEdited) {
+          var input = f.elements.key;
+          if (input && r.key) input.value = r.key;
+          applyKeyDraft();
+        }
         var dur = f.elements.duration;
         if (dur && !dur.value && r.durationMin) dur.value = r.durationMin;
         var stEl = $('#keyStatus');
-        if (stEl && r.durationMin) stEl.textContent += ' · Duração: ' + r.durationMin + ' min';
+        if (stEl) {
+          stEl.textContent = r.key
+            ? (r.keySource ? 'Fonte: ' + r.keySource : 'Tom estimado')
+            : 'Tom não identificado, mas a duração foi preenchida.';
+          if (r.durationMin) stEl.textContent += ' · Duração: ' + r.durationMin + ' min';
+        }
         return r;
       });
     }
 
     var body =
-      '<div class="field"><label>Título *</label><input name="title" required value="' + escapeHtml(s.title || '') + '" placeholder="Ex.: Águas de Março"></div>' +
+      '<div class="field"><label for="songTitleInput">Título *</label><input name="title" id="songTitleInput" required value="' + escapeHtml(s.title || '') + '" placeholder="Ex.: Águas de Março"></div>' +
       (s.createdAt ? '<div class="small muted" style="margin:-6px 0 12px">Adicionada em ' + formatDateTime(s.createdAt) + '</div>' : '') +
-      '<div class="field"><label>Cantor</label>' +
+      '<div class="field"><label for="songSingerInput">Cantor</label>' +
       '<div class="singer-wrap">' +
-      '<input name="singerName" autocomplete="off" role="combobox" aria-expanded="false" placeholder="Digite para buscar..." ' +
+      '<input name="singerName" id="songSingerInput" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="singerMenu" aria-haspopup="listbox" placeholder="Digite para buscar..." ' +
       'value="' + escapeHtml(s.singerId ? singerName(s.singerId) : (s.singerName || '')) + '">' +
-      '<div class="autocomplete-menu" id="singerMenu" hidden></div>' +
+      '<div class="autocomplete-menu" id="singerMenu" role="listbox" aria-label="Sugestões de cantores" hidden></div>' +
       '</div><div class="small muted" id="singerHint"></div></div>' +
-      '<div class="field"><label>Gênero <span class="auto-tag">do cantor</span></label><input name="genre" value="' + escapeHtml(s.genre || '') + '" placeholder="Preenchido ao escolher o cantor"></div>' +
-      '<div class="auto-field"><label>Tom da música <span class="auto-tag">automático</span></label>' +
-      '<div class="auto-value" id="autoKey">Não encontrado</div>' +
+      '<div class="field"><label for="songGenreInput">Gênero <span class="auto-tag">do cantor</span></label><input name="genre" id="songGenreInput" value="' + escapeHtml(s.genre || '') + '" placeholder="Preenchido ao escolher o cantor"></div>' +
+      '<div class="field"><label for="songKey">Tom da música <span class="auto-tag">automático ou manual</span></label>' +
+      '<input name="key" id="songKey" autocomplete="off" value="' + escapeHtml(s.key || '') + '" placeholder="Ex.: Am ou F#m">' +
       '<div class="small muted" id="keyStatus">O tom será pesquisado automaticamente na internet.</div></div>' +
-      '<div class="auto-field"><label>Letra <span class="auto-tag">automático</span></label>' +
-      '<div class="auto-value small" id="lyricsStatus">Será carregada ao salvar.</div></div>' +
       '<div class="field-row">' +
-      '<div class="field"><label>Dificuldade</label><select name="difficulty">' + diffOptions + '</select></div>' +
-      '<div class="field"><label>Duração (min) <span class="auto-tag">automático</span></label><input name="duration" type="number" min="0" step="any" value="' + escapeHtml(s.duration || '') + '" placeholder="Preenchido pela busca"></div>' +
-      '</div>';
+      '<div class="field"><label for="songDifficulty">Dificuldade</label><select name="difficulty" id="songDifficulty">' + diffOptions + '</select></div>' +
+      '<div class="field"><label for="songDuration">Duração (min) <span class="auto-tag">automático</span></label><input name="duration" id="songDuration" type="number" min="0" step="any" value="' + escapeHtml(s.duration || '') + '" placeholder="Preenchido pela busca"></div>' +
+      '</div>' +
+      '<details class="lyrics-editor"' + (s.lyrics ? ' open' : '') + '><summary>Letra da música <span class="auto-tag">automática ou manual</span></summary>' +
+      '<textarea name="lyrics" id="songLyricsInput" aria-label="Letra da música" placeholder="A letra é buscada automaticamente; você também pode colar ou editar aqui.">' + escapeHtml(s.lyrics || '') + '</textarea>' +
+      '<div class="small muted" id="lyricsStatus">A letra será pesquisada ao salvar.</div></details>' +
+      '<div class="field"><label>Trechos <span class="auto-tag">opcional</span></label>' +
+      '<div id="sectionsEditor"></div>' +
+      '<div class="section-editor-actions"><button type="button" class="btn btn-sm" id="addSectionBtn">+ Trecho</button></div>' +
+      '<div class="small muted">Ex.: Intro, Verso 1, Refrão. Cada trecho recebe uma nota própria na prática.</div></div>';
 
     openModal({
       title: existing ? 'Editar música' : 'Nova música',
@@ -964,59 +1264,153 @@
         var title = f.elements.title.value.trim();
         if (!title) return;
         var singerId = selectedSingerId;
+
+        var keyValue = f.elements.key.value.trim();
+        var keyName = '';
+        var keySource = '';
+        if (keyValue) {
+          if (keyValue === keyDraft.key) {
+            keyName = keyDraft.keyName || keyDisplayName(keyValue);
+            keySource = keyDraft.keySource || 'Automático';
+          } else {
+            keyName = keyDisplayName(keyValue);
+            keySource = 'Manual';
+          }
+        }
+
+        var lyricsValue = f.elements.lyrics.value.replace(/\r\n/g, '\n').trim();
+        var lyricsSource = '';
+        if (lyricsValue) {
+          lyricsSource = lyricsValue === String(lyricsDraft.lyrics || '').trim()
+            ? (lyricsDraft.source || 'Automática')
+            : 'Manual';
+        }
+
+        var sections = sectionsDraft.filter(function (sec) {
+          return String(sec.name || '').trim();
+        }).map(function (sec) {
+          return {
+            id: sec.id,
+            name: String(sec.name).trim(),
+            confidence: Math.max(1, Math.min(5, Number(sec.confidence) || 3))
+          };
+        });
+
         var values = {
           title: title,
           singerId: singerId,
           genre: f.elements.genre.value.trim(),
           difficulty: Number(f.elements.difficulty.value) || 1,
           duration: f.elements.duration.value ? Number(f.elements.duration.value) : null,
-          // Campos removidos do formulário são preservados em músicas já existentes.
-          sections: existing ? (existing.sections || []) : [],
+          sections: sections,
           notes: existing ? (existing.notes || '') : '',
           youtubeVideos: existing ? (existing.youtubeVideos || []) : [],
           youtubeSearchUrl: YouTube.songSearchUrl(title, singerId ? singerName(singerId) : ''),
-          key: keyDraft.key,
-          keyName: keyDraft.keyName,
-          keySource: keyDraft.keySource
+          key: keyValue,
+          keyName: keyName,
+          keySource: keySource,
+          lyrics: lyricsValue,
+          lyricsSource: lyricsSource
         };
 
-        var submit = $('#modalSubmit');
-        var token = modalToken;
-        submit.disabled = true;
-        submit.textContent = keyDraft.key ? 'Salvando...' : 'Pesquisando tom...';
-
-        function finish() {
-          if (token !== modalToken) return; // modal foi fechado/trocado
-          submit.disabled = false;
-          submit.textContent = 'Salvar';
-          values.key = keyDraft.key;
-          values.keyName = keyDraft.keyName;
-          values.keySource = keyDraft.keySource;
-          values.lyrics = lyricsDraft.lyrics;
-          values.lyricsSource = lyricsDraft.source;
-          values.duration = f.elements.duration.value ? Number(f.elements.duration.value) : null;
-          if (existing) {
-            Object.assign(existing, values);
-          } else {
-            var song = Object.assign({ id: Store.generateId('song'), createdAt: new Date().toISOString() }, values);
-            song.card = SRS.newCard(song.id);
-            state.songs.push(song);
-          }
-          save(); closeModal(); render();
-          toast('Música salva com sucesso.');
+        var savedSong;
+        if (existing) {
+          Object.assign(existing, values);
+          savedSong = existing;
+        } else {
+          savedSong = Object.assign({
+            id: Store.generateId('song'),
+            createdAt: new Date().toISOString()
+          }, values);
+          savedSong.card = SRS.newCard(savedSong.id);
+          state.songs.push(savedSong);
         }
 
-        var pending = [];
-        if (!keyDraft.key) pending.push(searchKey());
-        if (!lyricsDraft.lyrics) pending.push(searchLyrics());
-        if (pending.length) Promise.all(pending).then(finish);
-        else finish();
+        save();
+        closeModal();
+        render();
+        toast('Música salva com sucesso.');
+
+        var needKey = !values.key && !keyEdited;
+        var needLyrics = !values.lyrics && !lyricsEdited;
+        if (needKey || needLyrics) {
+          enrichSong(savedSong, { key: needKey, lyrics: needLyrics });
+        }
       }
     });
 
     modalAtStart = modalToken; // openModal() incrementou o token; sincroniza aqui
     applyKeyDraft();
     applyLyricsDraft();
+
+    function renderSectionsEditor() {
+      var wrap = $('#sectionsEditor');
+      if (!wrap) return;
+      if (!sectionsDraft.length) {
+        wrap.innerHTML = '<div class="small muted" style="margin-bottom:6px">Nenhum trecho cadastrado.</div>';
+        return;
+      }
+      wrap.innerHTML = sectionsDraft.map(function (sec, index) {
+        return '<div class="section-editor-row">' +
+          '<input name="sectionName" data-section-id="' + escapeHtml(sec.id) + '" value="' +
+          escapeHtml(sec.name) + '" placeholder="Ex.: Refrão ' + (index + 1) + '" ' +
+          'aria-label="Nome do trecho ' + (index + 1) + '">' +
+          '<button type="button" class="icon-btn" data-remove-section="' + escapeHtml(sec.id) + '" ' +
+          'aria-label="Remover trecho ' + (index + 1) + '">&times;</button>' +
+          '</div>';
+      }).join('');
+    }
+
+    function addSection() {
+      sectionsDraft.push({ id: Store.generateId('section'), name: '', confidence: 3 });
+      renderSectionsEditor();
+      var inputs = $('#sectionsEditor') ? $('#sectionsEditor').querySelectorAll('[data-section-id]') : [];
+      if (inputs.length) inputs[inputs.length - 1].focus();
+    }
+
+    renderSectionsEditor();
+    var addSectionBtn = $('#addSectionBtn');
+    if (addSectionBtn) addSectionBtn.addEventListener('click', addSection);
+    var sectionsEditor = $('#sectionsEditor');
+    if (sectionsEditor) {
+      sectionsEditor.addEventListener('input', function (e) {
+        var input = e.target.closest('[data-section-id]');
+        if (!input) return;
+        var sec = sectionsDraft.find(function (item) { return item.id === input.dataset.sectionId; });
+        if (sec) sec.name = input.value;
+      });
+      sectionsEditor.addEventListener('click', function (e) {
+        var remove = e.target.closest('[data-remove-section]');
+        if (!remove) return;
+        sectionsDraft = sectionsDraft.filter(function (item) {
+          return item.id !== remove.dataset.removeSection;
+        });
+        renderSectionsEditor();
+      });
+    }
+
+    var keyInput = $('#modalForm [name=key]');
+    if (keyInput) {
+      keyInput.addEventListener('input', function () {
+        keyEdited = true;
+        var st = $('#keyStatus');
+        if (st) st.textContent = keyInput.value.trim()
+          ? 'Tom informado manualmente.'
+          : 'Tom vazio — a busca automática pode ser usada ao salvar.';
+      });
+    }
+
+    var lyricsInput = $('#modalForm [name=lyrics]');
+    if (lyricsInput) {
+      lyricsInput.addEventListener('input', function () {
+        lyricsEdited = true;
+        var el = $('#lyricsStatus');
+        if (el) el.textContent = lyricsInput.value.trim()
+          ? 'Letra editada manualmente · ' + lyricsInput.value.length + ' caracteres'
+          : 'Letra vazia — a busca automática pode ser usada ao salvar.';
+      });
+    }
+
     var titleInput = $('#modalForm [name=title]');
     var titleTimer = null;
     if (titleInput) {
@@ -1039,12 +1433,12 @@
         return !q || norm(sg.name).indexOf(q) !== -1;
       }).slice(0, 8);
       if (matches.length) {
-        singerMenu.innerHTML = matches.map(function (sg) {
-          return '<button type="button" class="autocomplete-item" data-singer-id="' + escapeHtml(sg.id) + '">' +
+        singerMenu.innerHTML = matches.map(function (sg, i) {
+          return '<button type="button" class="autocomplete-item" role="option" aria-selected="false" id="singerOpt' + i + '" data-singer-id="' + escapeHtml(sg.id) + '">' +
             avatarHtml(sg, 26) + '<span>' + escapeHtml(sg.name) + '</span></button>';
         }).join('');
       } else if (query.trim()) {
-        singerMenu.innerHTML = '<button type="button" class="autocomplete-item add-new" data-add-singer="1">' +
+        singerMenu.innerHTML = '<button type="button" class="autocomplete-item add-new" role="option" aria-selected="false" data-add-singer="1">' +
           '+ Cadastrar "' + escapeHtml(query.trim()) + '"</button>';
       } else {
         singerMenu.innerHTML = '<div class="autocomplete-empty">Digite o nome do cantor.</div>';
@@ -1074,29 +1468,26 @@
       if (!name) return;
       hideSingerMenu();
       var hintEl = $('#singerHint');
-      var finalize = function (info) {
-        var sg = {
-          id: Store.generateId('singer'),
-          name: name,
-          genre: (info && info.genre) || '',
-          notes: (info && info.bio) || '',
-          photo: (info && info.dataUrl) || null,
-          photoUrl: (info && info.url) || null,
-          photoSource: (info && info.source) || null,
-          photoMissing: !info || (!info.dataUrl && !info.url),
-          photoUpdatedAt: new Date().toISOString()
-        };
-        state.singers.push(sg);
-        save();
-        if (singerInput) singerInput.value = sg.name;
-        lastResolved = '';
-        resolveSinger();
-        if (hintEl) hintEl.textContent = 'Cantor "' + name + '" cadastrado' +
-          ((info && info.source) ? ' com dados do ' + info.source : '') + '.';
-        toast('Cantor cadastrado.');
+      var sg = {
+        id: Store.generateId('singer'),
+        name: name,
+        genre: '',
+        notes: '',
+        photo: null,
+        photoUrl: null,
+        photoSource: null,
+        photoMissing: true,
+        photoPending: true,
+        photoUpdatedAt: new Date().toISOString()
       };
-      if (hintEl) hintEl.textContent = 'Cadastrando "' + name + '" e buscando dados...';
-      ArtistPhoto.fetchInfo(name).then(finalize).catch(function () { finalize(null); });
+      state.singers.push(sg);
+      save();
+      if (singerInput) singerInput.value = sg.name;
+      lastResolved = '';
+      resolveSinger();
+      if (hintEl) hintEl.textContent = 'Cantor "' + name + '" cadastrado. Buscando foto e gênero...';
+      toast('Cantor cadastrado.');
+      enrichSinger(sg, name);
     }
 
     if (singerInput) {
@@ -1121,7 +1512,11 @@
         if (e.key === 'ArrowDown') { e.preventDefault(); (items[idx + 1] || items[0]).focus(); }
         else if (e.key === 'ArrowUp') { e.preventDefault(); (items[idx - 1] || items[items.length - 1]).focus(); }
         else if (e.key === 'Enter' && idx >= 0) { e.preventDefault(); chooseSinger(items[idx].dataset.singerId); }
-        else if (e.key === 'Escape') { hideSingerMenu(); }
+        else if (e.key === 'Escape') {
+          e.preventDefault();
+          e.stopPropagation();
+          hideSingerMenu();
+        }
       });
       if (singerMenu) {
         singerMenu.addEventListener('mousedown', function (e) {
@@ -1133,6 +1528,25 @@
           chooseSinger(item.dataset.singerId);
         });
         singerMenu.addEventListener('keydown', function (e) {
+          if (e.key === 'Escape') {
+            e.preventDefault();
+            e.stopPropagation();
+            hideSingerMenu();
+            if (singerInput) singerInput.focus();
+            return;
+          }
+          var items = Array.prototype.slice.call(singerMenu.querySelectorAll('.autocomplete-item'));
+          var idx = items.indexOf(document.activeElement);
+          if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            (items[idx + 1] || items[0]).focus();
+            return;
+          }
+          if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            (items[idx - 1] || items[items.length - 1]).focus();
+            return;
+          }
           var add = e.target.closest('[data-add-singer]');
           if (add && e.key === 'Enter') { e.preventDefault(); createSingerInline(singerInput.value); return; }
           var item = e.target.closest('.autocomplete-item');
@@ -1155,18 +1569,20 @@
     var body =
       '<div class="callout"><strong>Busca automática:</strong> ao salvar a música, geramos um link de pesquisa com o título ' +
       'e o cantor. Abra-o para encontrar interpretações e aulas dessa música no YouTube.</div>' +
-      '<div style="margin-bottom:18px"><a class="btn btn-primary" href="' + escapeHtml(videoSearchUrl(song)) +
+      '<div style="margin-bottom:18px"><a class="btn btn-primary" href="' + escapeHtml(safeUrl(videoSearchUrl(song))) +
       '" target="_blank" rel="noopener noreferrer">&#128269; Buscar no YouTube</a></div>' +
       '<h3 style="font-size:15px;margin:0 0 10px">Vídeos vinculados (' + vids.length + ')</h3>';
     if (vids.length) {
       body += '<div class="video-list">' + vids.map(function (v) {
+        var url = safeUrl(v.url) || YouTube.watchUrl(v.id);
+        var thumb = safeUrl(v.thumb) || YouTube.thumbUrl(v.id);
         return '<div class="video-card">' +
-          '<a href="' + escapeHtml(v.url) + '" target="_blank" rel="noopener noreferrer">' +
-          '<img class="video-thumb" src="' + escapeHtml(v.thumb) + '" alt=""></a>' +
+          '<a href="' + escapeHtml(url) + '" target="_blank" rel="noopener noreferrer">' +
+          '<img class="video-thumb" src="' + escapeHtml(thumb) + '" alt="" loading="lazy"></a>' +
           '<div class="video-info"><strong>' + escapeHtml(v.title) + '</strong>' +
           '<div class="small muted">' + escapeHtml(v.channel || 'YouTube') + '</div>' +
           '<div style="margin-top:8px;display:flex;gap:6px">' +
-          '<a class="btn btn-ghost btn-sm" href="' + escapeHtml(v.url) + '" target="_blank" rel="noopener noreferrer">Assistir</a>' +
+          '<a class="btn btn-ghost btn-sm" href="' + escapeHtml(url) + '" target="_blank" rel="noopener noreferrer">Assistir</a>' +
           '<button type="button" class="btn btn-danger btn-sm" data-action="remove-video" data-id="' + escapeHtml(song.id) +
           '" data-video="' + escapeHtml(v.id) + '">Remover</button>' +
           '</div></div></div>';
@@ -1175,8 +1591,8 @@
       body += '<div class="empty">Nenhum vídeo vinculado. Use o campo abaixo ou o botão de busca.</div>';
     }
     body += '<hr class="divider">' +
-      '<div class="field"><label>Adicionar vídeo</label>' +
-      '<input name="videoUrl" placeholder="Cole a URL do YouTube ou o ID de 11 caracteres"></div>';
+      '<div class="field"><label for="videoUrlInput">Adicionar vídeo</label>' +
+      '<input name="videoUrl" id="videoUrlInput" placeholder="Cole a URL do YouTube ou o ID de 11 caracteres"></div>';
 
     openModal({
       title: 'Vídeos — ' + song.title,
@@ -1222,7 +1638,7 @@
         var card = ensureCard(s);
         html += '<div class="pick-row">' + avatarHtml(getSinger(s.singerId), 36) + '<div class="pick-info"><strong>' + escapeHtml(s.title) + '</strong>' +
           '<small>' + escapeHtml(singerName(s.singerId)) + ' · Domínio ' + SRS.mastery(card) + '% · ' + dueLabel(card) + '</small></div>' +
-          '<button class="btn btn-primary btn-sm" data-action="pick-song" data-id="' + s.id + '">Praticar</button></div>';
+          '<button class="btn btn-primary btn-sm" data-action="pick-song" data-id="' + escapeHtml(s.id) + '">Praticar</button></div>';
       });
       html += '</div>';
     }
@@ -1237,7 +1653,7 @@
         var card = ensureCard(s);
         html += '<div class="pick-row">' + avatarHtml(getSinger(s.singerId), 36) + '<div class="pick-info"><strong>' + escapeHtml(s.title) + '</strong>' +
           '<small>' + escapeHtml(singerName(s.singerId)) + ' · Próxima revisão: ' + formatDay(card.due) + '</small></div>' +
-          '<button class="btn btn-ghost btn-sm" data-action="pick-song" data-id="' + s.id + '">Praticar</button></div>';
+          '<button class="btn btn-ghost btn-sm" data-action="pick-song" data-id="' + escapeHtml(s.id) + '">Praticar</button></div>';
       });
       html += '</div></div>';
     }
@@ -1271,7 +1687,7 @@
         '<div class="hint">Confiança anterior: ' + u.confidence + '/5</div>' +
         '<div class="rating-group">';
       for (var q = 0; q <= 5; q++) {
-        html += '<button class="rating-btn' + (sel === q ? ' selected' : '') + '" data-action="rate" data-unit="' + escapeHtml(u.id) + '" data-q="' + q + '" title="' + labels[q] + '">' + q + ' ' + labels[q] + '</button>';
+        html += '<button type="button" class="rating-btn' + (sel === q ? ' selected' : '') + '" data-action="rate" data-unit="' + escapeHtml(u.id) + '" data-q="' + q + '" aria-pressed="' + (sel === q ? 'true' : 'false') + '" title="' + labels[q] + '">' + q + ' ' + labels[q] + '</button>';
       }
       html += '</div></div>';
     });
@@ -1423,11 +1839,18 @@
 
   function renderData(container, actions) {
     actions.innerHTML = '';
-    var bytes = 0;
-    try { bytes = new Blob([JSON.stringify(state)]).size; } catch (e) { bytes = JSON.stringify(state).length; }
+    var bytes = Store.estimateSize(state);
+    var localLimit = 5 * 1024 * 1024; // limite típico do localStorage por origem
+    var pct = Math.min(100, Math.round(bytes / localLimit * 100));
+    var fmtBytes = function (n) {
+      if (n < 1024) return n + ' B';
+      if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+      return (n / (1024 * 1024)).toFixed(2) + ' MB';
+    };
 
     var html = '<div class="panel"><h3>Exportar / Importar</h3>' +
       '<p class="muted">Seus dados ficam armazenados neste navegador (localStorage). Exporte um backup em JSON para não perdê-los ou para migrar de dispositivo.</p>' +
+      '<p class="small muted">A importação valida e sanitiza o arquivo antes de substituir os dados atuais. Faça um backup sempre que possível.</p>' +
       '<div style="display:flex;gap:10px;flex-wrap:wrap">' +
       '<button class="btn btn-primary" data-action="export-data">&#8681; Exportar JSON</button>' +
       '<button class="btn btn-ghost" data-action="import-data">&#8679; Importar JSON</button>' +
@@ -1437,7 +1860,11 @@
     html += '<div class="panel"><h3>Resumo do armazenamento</h3>' +
       '<p class="muted">Cantores: <strong>' + state.singers.length + '</strong> · Músicas: <strong>' + state.songs.length +
       '</strong> · Sessões de prática: <strong>' + state.sessions.length + '</strong></p>' +
-      '<p class="small muted">Tamanho aproximado: ' + bytes + ' bytes</p></div>';
+      '<div class="storage-meter" role="img" aria-label="Armazenamento usado: ' + pct + '% do limite típico"><span style="width:' + pct + '%"></span></div>' +
+      '<p class="small muted">' + fmtBytes(bytes) + ' de aproximadamente ' + fmtBytes(localLimit) +
+      ' (' + pct + '%) · limite típico do navegador. Fotos armazenadas ocupam mais espaço.</p>' +
+      (pct >= 80 ? '<p class="small" style="color:var(--danger)">O armazenamento está quase cheio. Exporte um backup e remova fotos grandes.</p>' : '') +
+      '</div>';
 
     html += '<div class="panel"><h3>Dados de teste (debug)</h3>' +
       '<p class="muted">Adiciona alguns cantores e músicas de exemplo para testar a listagem, filtros, resumo e revisões. Não apaga seus dados atuais.</p>' +
@@ -1450,25 +1877,52 @@
     container.innerHTML = html;
 
     $('#importFile').addEventListener('change', function (e) {
-      var file = e.target.files[0];
+      var input = e.target;
+      var file = input.files && input.files[0];
       if (!file) return;
+      input.value = ''; // permite selecionar o mesmo arquivo novamente
+
+      if (file.size > 15 * 1024 * 1024) {
+        toast('Arquivo muito grande (limite de 15 MB).');
+        return;
+      }
+      if ((state.songs.length || state.singers.length) &&
+          !confirm('Importar este backup substituirá todo o repertório atual (' +
+            state.songs.length + (state.songs.length === 1 ? ' música' : ' músicas') + ' e ' +
+            state.singers.length + (state.singers.length === 1 ? ' cantor' : ' cantores') +
+            '). Deseja continuar?')) {
+        return;
+      }
+
       var reader = new FileReader();
       reader.onload = function () {
+        var result;
         try {
-          var data = JSON.parse(reader.result);
-          if (!Array.isArray(data.singers) || !Array.isArray(data.songs)) throw new Error('Formato inválido');
-          state = {
-            version: data.version || 1,
-            singers: data.singers,
-            songs: data.songs,
-            sessions: Array.isArray(data.sessions) ? data.sessions : [],
-            createdAt: data.createdAt || new Date().toISOString()
-          };
-          state.songs.forEach(ensureCard);
-          save(); render(); toast('Dados importados com sucesso.');
+          result = Store.sanitizeState(JSON.parse(reader.result));
         } catch (err) {
-          toast('Erro ao importar: ' + err.message);
+          toast('Arquivo JSON inválido: ' + err.message);
+          return;
         }
+        if (!result.ok) {
+          toast('Erro ao importar: ' + result.error);
+          return;
+        }
+        state = result.state;
+        state.songs.forEach(ensureCard);
+        currentSongId = null;
+        currentVideoId = null;
+        if (!save()) return;
+        navigate('songs');
+        var ignorados = result.warnings.length;
+        var nSongs = state.songs.length;
+        var nSingers = state.singers.length;
+        toast('Backup importado: ' + nSongs + (nSongs === 1 ? ' música' : ' músicas') +
+          ' e ' + nSingers + (nSingers === 1 ? ' cantor' : ' cantores') + '.' +
+          (ignorados ? ' ' + ignorados + ' item(ns) inválido(s) ignorado(s).' : ''));
+        if (ignorados) console.warn('Importação:', result.warnings);
+      };
+      reader.onerror = function () {
+        toast('Não foi possível ler o arquivo.');
       };
       reader.readAsText(file);
     });
@@ -1534,6 +1988,16 @@
 
       case 'add-song': songModal(null); break;
       case 'edit-song': songModal(getSong(id)); break;
+      case 'enrich-song': {
+        var enrichTarget = getSong(id);
+        if (!enrichTarget) break;
+        if (!enrichTarget.key && !enrichTarget.lyrics && !enrichTarget.singerId) {
+          toast('Associe um cantor à música para melhorar a busca automática.');
+        }
+        enrichSong(enrichTarget, {});
+        toast('Buscando tom e letra em segundo plano...');
+        break;
+      }
       case 'ver-videos': openVideosModal(id); break;
       case 'remove-video': {
         var songVideo = getSong(id);
@@ -1634,7 +2098,7 @@
   });
   // Se o embed falhar (ex.: erro 153), troca o player por um poster com link direto.
   window.addEventListener('message', function (e) {
-    if (!currentVideoId || e.origin.indexOf('youtube') === -1) return;
+    if (!currentVideoId || !YouTube.isYoutubeOrigin(e.origin)) return;
     var d = e.data;
     if (typeof d === 'string') { try { d = JSON.parse(d); } catch (err) { return; } }
     if (!d || d.event !== 'onError') return;
@@ -1646,9 +2110,13 @@
   });
 
   document.addEventListener('keydown', function (e) {
-    if (e.key === 'Escape' && !$('#modalOverlay').hidden) closeModal();
+    trapModalFocus(e);
+    if (e.key === 'Escape' && !$('#modalOverlay').hidden) {
+      e.preventDefault();
+      closeModal();
+    }
     if ((e.key === 'Enter' || e.key === ' ') && e.target && e.target.classList &&
-        e.target.classList.contains('clickable')) {
+        e.target.classList.contains('clickable') && e.target.tagName !== 'BUTTON') {
       e.preventDefault();
       e.target.click();
     }
@@ -1740,6 +2208,15 @@
     });
   }
   state.songs.forEach(ensureCard);
-  save();
   render();
+
+  // PWA: registra o service worker apenas em servidor HTTP(S). Abrir o
+  // index.html diretamente pelo sistema de arquivos continua funcionando.
+  if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
+    window.addEventListener('load', function () {
+      navigator.serviceWorker.register('sw.js').catch(function (err) {
+        console.warn('Service worker não registrado:', err.message);
+      });
+    });
+  }
 })();

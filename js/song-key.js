@@ -2,7 +2,7 @@
  * song-key.js — Descoberta do tom (key) de uma música
  *
  * Não existe base pública de tons com API aberta e sem chave. Então:
- *   1. busca-se a música na API da Deezer (CORS liberado);
+ *   1. busca-se a música na iTunes Search API (CORS liberado);
  *   2. obtém-se o preview oficial de ~30 s;
  *   3. o áudio é decodificado com Web Audio API e analisado por um
  *      cromagrama (Goertzel) correlacionado com os perfis de
@@ -25,51 +25,31 @@
       .replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9 ]/g, '').trim();
   }
 
-  function withTimeout(promise, ms, fallback) {
-    return Promise.race([
-      promise,
-      new Promise(function (resolve) { setTimeout(function () { resolve(fallback); }, ms); })
-    ]);
-  }
-
-  /** Encontra a música e devolve a URL do preview. Deezer → iTunes. */
+  /**
+   * Encontra a música e devolve a URL do preview. A iTunes Search API aceita
+   * requisições diretas do navegador; a API da Deezer não envia cabeçalhos
+   * CORS, por isso deixou de ser usada.
+   */
   function findPreview(artist, title) {
     var query = (artist ? artist + ' ' : '') + title;
-    var deezer = fetch('https://api.deezer.com/search?q=' + encodeURIComponent(query) + '&limit=5')
-      .then(function (r) { return r.json(); })
+    var u = 'https://itunes.apple.com/search?term=' + encodeURIComponent(query) + '&entity=song&limit=5&country=BR';
+    return Net.getJson(u, { timeout: 8000, cacheTtl: 60 * 60 * 1000 })
       .then(function (d) {
-        var tracks = d.data || [];
+        var tracks = d.results || [];
         if (!tracks.length) return null;
         var want = normalize(title);
         var best = tracks.find(function (t) {
-          var got = normalize(t.title_short || t.title);
+          var got = normalize(t.trackName);
           return got && (got.indexOf(want) !== -1 || want.indexOf(got) !== -1);
         }) || tracks[0];
         return {
-          url: best.preview || null,
-          durationSec: best.duration || null,
-          track: best.title,
-          artist: best.artist && best.artist.name,
-          source: 'Deezer'
+          url: best.previewUrl || null,
+          durationSec: best.trackTimeMillis ? Math.round(best.trackTimeMillis / 1000) : null,
+          track: best.trackName,
+          artist: best.artistName,
+          source: 'Apple Music'
         };
       }).catch(function () { return null; });
-
-    return deezer.then(function (r) {
-      if (r) return r;
-      var u = 'https://itunes.apple.com/search?term=' + encodeURIComponent(query) + '&entity=song&limit=1&country=BR';
-      return fetch(u).then(function (res) { return res.json(); }).then(function (d) {
-        var t = d.results && d.results[0];
-        return t
-          ? {
-              url: t.previewUrl || null,
-              durationSec: t.trackTimeMillis ? Math.round(t.trackTimeMillis / 1000) : null,
-              track: t.trackName,
-              artist: t.artistName,
-              source: 'Apple Music'
-            }
-          : null;
-      }).catch(function () { return null; });
-    });
   }
 
   /** Potência de uma frequência via algoritmo de Goertzel. */
@@ -146,36 +126,36 @@
     });
   }
 
-  /** Busca na internet e estima o tom. Retorna null se não conseguir. */
+  /**
+   * Busca na internet e estima o tom. Retorna duração mesmo quando o áudio
+   * não pode ser analisado (CORS, formato etc.).
+   */
   function search(artist, title) {
     if (!title) return Promise.resolve(null);
-    return withTimeout(
-      findPreview(artist, title).then(function (found) {
-        if (!found) return null;
-        var durationMin = found.durationSec
-          ? Math.round(found.durationSec / 60 * 100) / 100
-          : null;
-        if (!found.url) {
-          // Sem preview não dá para estimar o tom, mas a duração veio na busca.
-          return { durationSec: found.durationSec, durationMin: durationMin, track: found.track, trackArtist: found.artist };
-        }
-        return fetch(found.url).then(function (r) { return r.arrayBuffer(); })
-          .then(analyze)
-          .then(function (est) {
-            return {
-              key: est.key,
-              keyName: est.keyName,
-              keySource: 'Estimativa por áudio (' + found.source + ')',
-              durationSec: found.durationSec,
-              durationMin: durationMin,
-              track: found.track,
-              trackArtist: found.artist
-            };
+    return findPreview(artist, title).then(function (found) {
+      if (!found) return null;
+      var durationMin = found.durationSec
+        ? Math.round(found.durationSec / 60 * 100) / 100
+        : null;
+      var base = {
+        durationSec: found.durationSec,
+        durationMin: durationMin,
+        track: found.track,
+        trackArtist: found.artist,
+        previewSource: found.source
+      };
+      if (!found.url) return base;
+      return Net.getArrayBuffer(found.url, { timeout: 15000, cache: 'no-store' })
+        .then(analyze)
+        .then(function (est) {
+          return Object.assign(base, {
+            key: est.key,
+            keyName: est.keyName,
+            keySource: 'Estimativa por áudio (' + found.source + ')'
           });
-      }),
-      20000,
-      null
-    ).catch(function () { return null; });
+        })
+        .catch(function () { return base; });
+    }).catch(function () { return null; });
   }
 
   global.SongKey = { search: search, estimateKey: estimateKey, chroma: chroma };

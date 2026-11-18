@@ -3,10 +3,26 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Repertório musical local-first: organize músicas, cantores, tons, letras, vídeos e revisões espaçadas.">
+  <meta name="theme-color" content="#2f6f5e">
   <title>Repertório — Suas músicas</title>
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="manifest" href="manifest.webmanifest">
   <link rel="stylesheet" href="css/styles.css">
+  <script>
+    // Aplica o tema antes da primeira pintura para evitar flash claro/escuro.
+    (function () {
+      try {
+        var saved = localStorage.getItem('repertorio_theme');
+        var dark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+        document.documentElement.setAttribute('data-theme',
+          saved === 'dark' || saved === 'light' ? saved : (dark ? 'dark' : 'light'));
+      } catch (e) { /* preferência do sistema */ }
+    })();
+  </script>
 </head>
 <body>
+  <a class="skip-link" href="#viewContainer">Pular para o conteúdo</a>
   <div class="app">
     <!-- ===================== CABEÇALHO ===================== -->
     <header class="app-header">
@@ -15,16 +31,16 @@
         <span class="brand-name">Repertório</span>
       </div>
 
-      <nav class="nav" id="nav">
-        <button class="nav-item active" data-view="songs">Músicas</button>
-        <button class="nav-item" data-view="singers">Cantores</button>
-        <span class="nav-divider"></span>
-        <button class="nav-item nav-secondary" data-view="dashboard">Resumo</button>
-        <button class="nav-item nav-secondary" data-view="practice">Revisões <span class="badge" id="navDue">0</span></button>
-        <button class="nav-item nav-secondary" data-view="data">Dados</button>
+      <nav class="nav" id="nav" aria-label="Navegação principal">
+        <button type="button" class="nav-item active" data-view="songs" aria-current="page">Músicas</button>
+        <button type="button" class="nav-item" data-view="singers">Cantores</button>
+        <span class="nav-divider" aria-hidden="true"></span>
+        <button type="button" class="nav-item nav-secondary" data-view="dashboard">Resumo</button>
+        <button type="button" class="nav-item nav-secondary" data-view="practice">Revisões <span class="badge" id="navDue">0</span></button>
+        <button type="button" class="nav-item nav-secondary" data-view="data">Dados</button>
       </nav>
 
-      <button type="button" class="theme-toggle" id="themeToggle" data-action="toggle-theme" title="Alternar tema claro/noturno" aria-label="Alternar tema">&#127769;</button>
+      <button type="button" class="theme-toggle" id="themeToggle" data-action="toggle-theme" title="Alternar tema claro/noturno" aria-label="Alternar tema" aria-pressed="false">&#127769;</button>
     </header>
 
     <!-- ===================== CONTEÚDO ===================== -->
@@ -37,13 +53,13 @@
         <div class="page-actions" id="topbarActions"></div>
       </div>
 
-      <div class="view-container" id="viewContainer"></div>
+      <div class="view-container" id="viewContainer" tabindex="-1"></div>
     </main>
   </div>
 
   <!-- ===================== MODAL ===================== -->
   <div class="modal-overlay" id="modalOverlay" hidden>
-    <div class="modal" role="dialog" aria-modal="true">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle" tabindex="-1">
       <div class="modal-header">
         <h2 id="modalTitle">Título</h2>
         <button type="button" class="icon-btn" id="modalClose" data-action="modal-close" aria-label="Fechar">&times;</button>
@@ -58,8 +74,9 @@
     </div>
   </div>
 
-  <div class="toast" id="toast" hidden></div>
+  <div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true" hidden></div>
 
+  <script src="js/http.js"></script>
   <script src="js/storage.js"></script>
   <script src="js/spaced-repetition.js"></script>
   <script src="js/artist-photo.js"></script>

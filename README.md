@@ -18,30 +18,46 @@ resumo de cada música (ordem: Informações → Atividade → Letra → Vídeos
 Abra o arquivo `index.html` em um navegador moderno (Chrome, Edge, Firefox).
 Não é necessário instalar nada nem iniciar servidor.
 
+Para instalar como aplicativo (PWA) e usar o service worker, sirva a pasta por HTTP:
+
+```bash
+python3 -m http.server 8080
+# depois abra http://localhost:8080
+```
+
 > A busca automática de fotos, gêneros, tons e durações usa APIs públicas e precisa de
 > internet. As fotos já salvas continuam aparecendo normalmente offline (estão em
-> base64 no seu navegador).
+> base64 no seu navegador). O modo offline guarda apenas o app shell; seus dados já
+> ficam no `localStorage`.
 
 ## Estrutura
 
 ```
 .
 ├── index.html                  # Estrutura da SPA (cabeçalho, modal, toast)
+├── manifest.webmanifest        # Metadados de instalação do PWA
+├── sw.js                       # Service worker: cache do app shell
 ├── css/styles.css              # Tema, layout responsivo e componentes
+├── icons/                      # Ícones SVG/PNG do PWA
 ├── js/
-│   ├── storage.js              # Persistência (localStorage) e IDs
+│   ├── http.js                 # Cliente HTTP com cache, timeout e deduplicação
+│   ├── storage.js              # Persistência, validação/sanitização e IDs
 │   ├── spaced-repetition.js    # Motor SM-2: agendamento, domínio, formatação
 │   ├── artist-photo.js         # Busca (Wikipédia/Apple Music) e compactação da foto
 │   ├── youtube.js              # Links, validação e metadados de vídeos (noembed)
-│   ├── song-key.js             # Busca do preview e estimativa do tom (Web Audio)
+│   ├── song-key.js             # Preview (iTunes) e estimativa do tom (Web Audio)
+│   ├── song-lyrics.js          # Busca de letras (LRCLIB → lyrics.ovh)
 │   └── app.js                  # Controlador: telas, formulários e fluxo de prática
+├── tests/                      # Testes de unidade com node:test
 └── README.md                   # Esta documentação
 ```
 
 ## Funcionalidades implementadas
 
-- **Cadastro de cantores** — nome, gênero e observações; edição e exclusão (com aviso
-  de músicas que ficarão sem vínculo).
+- **Cadastro de cantores** — nome, gênero e biografia; edição e exclusão (com aviso
+  de músicas que ficarão sem vínculo). O salvamento é imediato: a foto e os dados que
+  ainda estiverem sendo buscados são acrescentados em segundo plano, com indicador
+  **"Buscando foto..."** no card.
 - **Cadastro do artista com preenchimento automático** — o único campo editável é o
   **nome**. Enquanto ele é digitado (debounce de 600 ms), o sistema consulta a
   **Wikipédia** (pt → en) para obter **foto e biografia curta**, e a **Apple Music**
@@ -50,33 +66,40 @@ Não é necessário instalar nada nem iniciar servidor.
   A foto é compactada em um quadrado de 256 px em JPEG e **armazenada em base64** no
   `localStorage`. O formulário não tem botões de imagem: a prévia e o preenchimento são
   automáticos. Se nada for encontrado, o card exibe **"Foto não encontrada"** com o
-  botão **"Tentar foto"**. Se a imagem não puder ser embutida, a URL remota é o fallback. Clicar no card do cantor abre a listagem de músicas já filtrada por ele.
-- **Cadastro de músicas** — título, cantor, gênero, dificuldade (1–5) e duração. Os campos
-  de trechos, vídeos e observações foram removidos do formulário, mas os dados de músicas
-  já cadastradas continuam preservados e exibidos. Ao escolher o cantor, o **gênero musical é preenchido
-  automaticamente** com o estilo cadastrado nele. Se o nome digitado não existir, o
-  autocomplete oferece **+ Cadastrar "nome"**: o cantor é criado diretamente, sem abrir
-  o popup, com foto/gênero/biografia buscados em segundo plano e já selecionado no
-  formulário. A **duração** e o **tom da música** são pesquisados na internet **somente
-  quando um cantor é atribuído** (o nome dele entra na consulta, aumentando a precisão):
-  buscamos o preview oficial no Deezer/Apple Music, analisamos o áudio com Web Audio e
-  estimamos a tonalidade pelo método de **Krumhansl-Schmuckler**, exibindo-a como
-  estimativa (ex.: `Am · Lá menor`). Não existe banco de tons gratuito com API aberta,
-  por isso o resultado é identificado como estimativa.
+  botão **"Tentar foto"**. Se a imagem não puder ser embutida, a URL remota é o fallback.
+  Clicar no card do cantor abre a listagem de músicas já filtrada por ele.
+- **Cadastro de músicas** — título, cantor, gênero, tom, dificuldade (1–5), duração,
+  letra e **trechos** (Intro, Verso, Refrão...). Os trechos podem ser adicionados e
+  removidos no editor e recebem confiança própria. Ao escolher o cantor, o **gênero
+  musical é preenchido automaticamente** com o estilo cadastrado nele. Se o nome
+  digitado não existir, o autocomplete oferece **+ Cadastrar "nome"**: o cantor é criado
+  diretamente, sem abrir o popup, com foto/gênero/biografia buscados em segundo plano e
+  já selecionado no formulário.
+- **Tom, duração e letra automáticos ou manuais** — ao salvar, a música aparece
+  imediatamente na lista e o enriquecimento roda em segundo plano. A **duração** e o
+  **tom** são pesquisados com o nome do cantor na consulta; buscamos o preview oficial
+  na Apple Music/iTunes, analisamos o áudio com Web Audio e estimamos a tonalidade pelo
+  método de **Krumhansl-Schmuckler**, exibindo-a como estimativa (ex.: `Am · Lá menor`).
+  A duração é preenchida mesmo quando o áudio não pode ser analisado. A **letra** é
+  buscada na LRCLIB (fallback para lyrics.ovh). Qualquer valor digitado ou colado pelo
+  usuário é preservado e marcado como **Manual**; o que veio da internet é identificado
+  como automático. Não existe banco de tons gratuito com API aberta, por isso o tom é
+  uma estimativa.
 - **Vídeos do YouTube** — ao salvar uma música, o sistema gera automaticamente um link
   de busca (`título + cantor`). Músicas com vídeos exibem um ícone ▶ ao lado do nome na
   lista. Clicar no nome abre a **tela de resumo da música**, com mini player do YouTube
-  na própria página quando a página é servida por http(s) (oculto quando não há vídeos;
-  em `file://` é mostrado um poster com link direto, pois o YouTube rejeita embeds sem
-  `Referer`), seletor dos vídeos anexados, metadados
-  e o link de busca. A **letra da música** é carregada automaticamente no cadastro via
-  LRCLIB (com fallback para lyrics.ovh) e exibida em uma seção própria no resumo.
-  O botão **Vídeos** abre a galeria para adicionar/remover links.
-- **Listagem tabular do repertório** — tabela com Música, Cantor, Gênero, Tom, Duração e
-  Revisão e Adicionada em (data/hora do cadastro). Cabeçalhos clicáveis ordenam por
-  qualquer coluna (clique de novo inverte a ordem). Um contador mostra quantas músicas
-  estão sendo exibidas e o total. Filtros combináveis: busca por texto, cantor, gênero
-  e "só revisões pendentes".
+  na própria página quando a página é servida por http(s) (em `file://` é mostrado um
+  poster com link direto, pois o YouTube rejeita embeds sem `Referer`), seletor dos
+  vídeos anexados, metadados e o link de busca. O botão **Vídeos** abre a galeria para
+  adicionar/remover links; só links e origens oficiais do YouTube são aceitos.
+- **Listagem tabular do repertório** — tabela com Música, Cantor, Gênero, Tom, Duração,
+  Revisão e Adicionada em (data/hora do cadastro), com indicador de dificuldade e chips
+  de status pendente. Cabeçalhos clicáveis ordenam por qualquer coluna (clique de novo
+  inverte a ordem) e expõem `aria-sort`. Um contador mostra quantas músicas estão sendo
+  exibidas e o total. Filtros combináveis: busca por texto, cantor, gênero e
+  "só revisões pendentes".
+- **Sincronização entre abas** — alterações salvas em uma aba são refletidas nas demais
+  pelo evento `storage`, sem recarregar a página.
 - **Dados de teste** — o botão em **Dados → Dados de teste (debug)** adiciona 3 cantores
   e 4 músicas de exemplo (com letra, tom, vídeos e uma revisão já em dia) para testar a
   interface sem apagar os dados existentes.
@@ -85,13 +108,37 @@ Não é necessário instalar nada nem iniciar servidor.
 > público com CORS confiável para uma página aberta via `file://`. Por isso o sistema
 > gera o link de pesquisa automaticamente e permite anexar vídeos específicos, cujos
 > metadados são obtidos pelo serviço público `noembed.com`.
-- **Painel (dashboard)** — totais, revisões pendentes, domínio médio, streak de dias
-  consecutivos e histórico das últimas sessões.
+- **Painel (dashboard)** — totais, revisões pendentes, domínio médio, sequência de dias
+  consecutivos, histórico das últimas sessões, músicas recentes e calendário de atividade.
 - **Prática guiada** — o usuário avalia cada trecho de 0 (esqueci) a 5 (perfeito);
   o sistema calcula a nota média, aplica o SM-2, registra a sessão e mostra:
   próxima revisão, novo intervalo, domínio estimado, evolução do fator de facilidade,
   lapses e a lista de **trechos fracos** para foco na próxima sessão.
-- **Backup** — exportação e importação de dados em JSON e redefinição completa.
+- **Backup e armazenamento** — exportação/importação em JSON com confirmação antes de
+  substituir os dados, validação de tamanho e conteúdo, sanitização de todos os campos e
+  redefinição completa. A tela **Dados** mostra o espaço usado em relação ao limite
+  típico do `localStorage`, com alerta quando ele está quase cheio.
+- **Acessibilidade** — navegação por teclado, link "Pular para o conteúdo", foco preso
+  no modal e restaurado ao fechar, `aria-current` na navegação, `aria-sort` na tabela,
+  `aria-pressed` nas notas de prática, rótulos nos filtros e anúncios por `aria-live`.
+- **PWA e offline** — manifest, ícones e service worker que guarda o app shell. Depois de
+  aberto por http(s), o aplicativo pode ser instalado e recarregado sem internet (os dados
+  continuam vindo do `localStorage`).
+- **Segurança** — todo o estado carregado ou importado passa por sanitização; IDs e URLs
+  são escapados antes de entrar no HTML; apenas `http(s)` (e `data:image` para fotos) são
+  aceitos em links e imagens.
+
+## Testes
+
+Os testes usam apenas o runner nativo do Node.js (>= 20), sem dependências:
+
+```bash
+npm test        # ou: node --test tests/*.test.js
+```
+
+Eles cobrem a sanitização/importação do estado, a migração de schema, o cliente HTTP
+(cache, timeout e deduplicação), o cálculo de dias em fusos diferentes e o algoritmo
+SM-2. O workflow em `.github/workflows/ci.yml` executa a suíte a cada push/PR.
 
 ## Método científico adotado e justificativa
 
@@ -166,7 +213,8 @@ Esta lista existe apenas neste documento; a interface não exibe mais a seção 
 6. **Partituras e cifras** — anexar PDF/MusicXML/chord sheets com navegação por trecho.
 7. **Análise de afinação e ritmo** — captura de áudio via Web Audio API com feedback.
 8. **Estatísticas preditivas** — heatmap de consistência e curva de retenção prevista.
-9. **PWA e modo offline** — instalação como app e sincronização posterior.
+9. **Sincronização offline** — fila de alterações e sincronização posterior entre
+   dispositivos (o app shell offline já está implementado).
 
 ### Prioridade baixa
 10. **Treino de ouvido gamificado** — intervalos, acordes e ritmo conectados ao repertório.
