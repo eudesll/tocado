@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Repertório — Suas músicas</title>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <div class="app">
+    <!-- ===================== CABEÇALHO ===================== -->
+    <header class="app-header">
+      <div class="brand">
+        <span class="brand-mark">&#9834;</span>
+        <span class="brand-name">Repertório</span>
+      </div>
+
+      <nav class="nav" id="nav">
+        <button class="nav-item active" data-view="songs">Músicas</button>
+        <button class="nav-item" data-view="singers">Cantores</button>
+        <span class="nav-divider"></span>
+        <button class="nav-item nav-secondary" data-view="dashboard">Resumo</button>
+        <button class="nav-item nav-secondary" data-view="practice">Revisões <span class="badge" id="navDue">0</span></button>
+        <button class="nav-item nav-secondary" data-view="data">Dados</button>
+      </nav>
+
+      <button type="button" class="theme-toggle" id="themeToggle" data-action="toggle-theme" title="Alternar tema claro/noturno" aria-label="Alternar tema">&#127769;</button>
+    </header>
+
+    <!-- ===================== CONTEÚDO ===================== -->
+    <main class="main">
+      <div class="page-head">
+        <div>
+          <h1 id="viewTitle">Músicas</h1>
+          <p class="view-subtitle" id="viewSubtitle">Todas as músicas do seu repertório</p>
+        </div>
+        <div class="page-actions" id="topbarActions"></div>
+      </div>
+
+      <div class="view-container" id="viewContainer"></div>
+    </main>
+  </div>
+
+  <!-- ===================== MODAL ===================== -->
+  <div class="modal-overlay" id="modalOverlay" hidden>
+    <div class="modal" role="dialog" aria-modal="true">
+      <div class="modal-header">
+        <h2 id="modalTitle">Título</h2>
+        <button type="button" class="icon-btn" id="modalClose" data-action="modal-close" aria-label="Fechar">&times;</button>
+      </div>
+      <form id="modalForm">
+        <div class="modal-body" id="modalBody"></div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-ghost" id="modalCancel" data-action="modal-cancel">Cancelar</button>
+          <button type="submit" class="btn btn-primary" id="modalSubmit">Salvar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" hidden></div>
+
+  <script src="js/storage.js"></script>
+  <script src="js/spaced-repetition.js"></script>
+  <script src="js/artist-photo.js"></script>
+  <script src="js/youtube.js"></script>
+  <script src="js/song-key.js"></script>
+  <script src="js/song-lyrics.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
