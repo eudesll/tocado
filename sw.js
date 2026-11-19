@@ -1,11 +1,11 @@
 /* =========================================================================
- * sw.js — Service worker do Repertório
+ * sw.js — Service worker do Tocadô
  * Guarda o "app shell" para abrir e usar o aplicativo offline.
  * Dados do usuário continuam no localStorage; nenhuma API externa é cacheada.
  * ========================================================================= */
 'use strict';
 
-var CACHE_NAME = 'repertorio-shell-v3';
+var CACHE_NAME = 'tocado-shell-v4';
 var APP_SHELL = [
   './',
   './index.html',

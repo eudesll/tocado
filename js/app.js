@@ -18,7 +18,8 @@
   var enrichmentTokens = Object.create(null);
 
   // Estado transitório do fluxo de prática
-  var practice = { step: 'setup', songId: null, ratings: {}, result: null };
+  var practice = { step: 'setup', songId: null, ratings: {}, result: null, activeUnit: null };
+  var practiceSearchTerm = '';
 
   // Paleta de comandos e modo palco
   var paletteState = { open: false, items: [], index: 0, previousFocus: null };
@@ -56,6 +57,90 @@
 
   function markLetter(i) {
     return String.fromCharCode(65 + (i % 26));
+  }
+
+  // Dica discreta: só aparece no hover/foco do ícone de informação.
+  function tip(text) {
+    return '<span class="tip" tabindex="0" role="img" aria-label="Dica: ' + escapeHtml(text) + '">' +
+      icon('info') + '<span class="tip-body" role="tooltip">' + escapeHtml(text) + '</span></span>';
+  }
+
+  var CIRCLE_MAJOR = ['C', 'G', 'D', 'A', 'E', 'B', 'F#', 'C#', 'G#', 'D#', 'A#', 'F'];
+  var CIRCLE_MINOR = ['Am', 'Em', 'Bm', 'F#m', 'C#m', 'G#m', 'D#m', 'A#m', 'Fm', 'Cm', 'Gm', 'Dm'];
+
+  // Círculo das quintas gerado em SVG: sem imagem externa e sempre fiel ao tom da música.
+  function circleOfFifthsSvg(key) {
+    var isMinor = !!key && /m$/.test(key);
+    var index = isMinor ? CIRCLE_MINOR.indexOf(key) : CIRCLE_MAJOR.indexOf(key);
+    var cx = 100, cy = 100;
+
+    function point(angle, radius) {
+      var rad = (angle - 90) * Math.PI / 180;
+      return [cx + Math.cos(rad) * radius, cy + Math.sin(rad) * radius];
+    }
+    function wedge(r1, r2, start, end) {
+      var a = point(start, r2), b = point(end, r2), c = point(end, r1), d = point(start, r1);
+      return 'M' + a[0].toFixed(2) + ' ' + a[1].toFixed(2) +
+        ' A' + r2 + ' ' + r2 + ' 0 0 1 ' + b[0].toFixed(2) + ' ' + b[1].toFixed(2) +
+        ' L' + c[0].toFixed(2) + ' ' + c[1].toFixed(2) +
+        ' A' + r1 + ' ' + r1 + ' 0 0 0 ' + d[0].toFixed(2) + ' ' + d[1].toFixed(2) + ' Z';
+    }
+
+    var svg = '<svg class="cf-svg" viewBox="0 0 200 200" role="img" ' +
+      'aria-label="' + (key ? 'Círculo das quintas com o tom ' + escapeHtml(key) + ' destacado' : 'Círculo das quintas') + '">';
+    if (key) svg += '<title>Círculo das quintas — tom ' + escapeHtml(key) + '</title>';
+
+    for (var i = 0; i < 12; i++) {
+      var start = i * 30 - 15, end = i * 30 + 15;
+      [[64, 92, CIRCLE_MAJOR[i], 'cf-major'], [32, 62, CIRCLE_MINOR[i], 'cf-minor']].forEach(function (ring) {
+        var active = index === i;
+        var lp = point(i * 30, (ring[0] + ring[1]) / 2);
+        svg += '<g class="cf-cell' + (active ? ' active' : '') + '">' +
+          '<path d="' + wedge(ring[0], ring[1], start, end) + '"></path>' +
+          '<text x="' + lp[0].toFixed(2) + '" y="' + lp[1].toFixed(2) + '">' + escapeHtml(ring[2]) + '</text></g>';
+      });
+    }
+
+    svg += '<circle class="cf-center" cx="100" cy="100" r="30"></circle>' +
+      '<text class="cf-center-label" x="100" y="97">' + (key ? escapeHtml(key) : '—') + '</text>' +
+      '<text class="cf-center-caption" x="100" y="112">TOM</text></svg>';
+    return svg;
+  }
+
+  function keyCaption(key) {
+    if (!key) return 'Sem tom definido nesta música. Cadastre um tom para destacá-lo no círculo.';
+    var isMinor = /m$/.test(key);
+    var index = isMinor ? CIRCLE_MINOR.indexOf(key) : CIRCLE_MAJOR.indexOf(key);
+    if (index < 0) return 'Tom ' + key + ' — não mapeado no círculo das quintas.';
+    var relative = isMinor ? CIRCLE_MAJOR[index] : CIRCLE_MINOR[index];
+    return 'Tom ' + key + ' (' + (KEY_NAMES[key] || '') + '). Tonalidade relativa: ' +
+      relative + ' (' + (KEY_NAMES[relative] || '') + ').';
+  }
+
+  function practiceUnits(song) {
+    return song.sections && song.sections.length
+      ? song.sections
+      : [{ id: 'full', name: 'Música inteira', confidence: 3 }];
+  }
+
+  function nextUnratedUnit(units, fromId) {
+    var idx = 0;
+    for (var i = 0; i < units.length; i++) if (units[i].id === fromId) { idx = i; break; }
+    for (var k = 1; k <= units.length; k++) {
+      var candidate = units[(idx + k) % units.length];
+      if (practice.ratings[candidate.id] == null) return candidate.id;
+    }
+    return fromId;
+  }
+
+  function focusRating(unitId, q) {
+    var buttons = document.querySelectorAll('.rating-btn[data-unit][data-q]');
+    for (var i = 0; i < buttons.length; i++) {
+      if (buttons[i].dataset.unit === unitId && buttons[i].dataset.q === String(q)) {
+        try { buttons[i].focus({ preventScroll: true }); } catch (e) { buttons[i].focus(); }
+        return;
+      }
+    }
   }
 
   function escapeHtml(v) {
@@ -133,7 +218,7 @@
     state.songs.forEach(ensureCard);
     if (currentView === 'song' && !getSong(currentSongId)) currentView = 'songs';
     if (practice.songId && !getSong(practice.songId)) {
-      practice = { step: 'setup', songId: null, ratings: {}, result: null };
+      practice = { step: 'setup', songId: null, ratings: {}, result: null, activeUnit: null };
     }
     render();
     toast('Dados sincronizados a partir de outra aba.');
@@ -1941,39 +2026,93 @@
   }
 
   function renderSetupStep(container, actions) {
-    actions.innerHTML = '<button class="btn" data-action="open-method">Como funciona</button>';
-    var due = dueSongs();
-    var html = '<div class="practice-setup">';
+    actions.innerHTML = '<button class="btn" data-action="open-method">' + icon('info') + ' Como funciona</button>';
 
-    html += '<div class="section"><h2 class="section-title">Revisões pendentes (' + due.length + ')</h2>';
+    var due = dueSongs();
+    var today = new Date().toDateString();
+    var practicedToday = state.sessions.filter(function (session) {
+      return new Date(session.date).toDateString() === today;
+    }).length;
+
+    var html = '<div class="practice-setup">';
+    html += '<section class="practice-summary">' +
+      '<div class="practice-summary-top">' +
+      '<div><p class="page-eyebrow">Sessão de ensaio</p>' +
+      '<h2>' + (due.length ? 'Escolha por onde começar' : 'Nada pendente — pratique à vontade') + '</h2>' +
+      '<p class="muted">' + (due.length
+        ? 'Comece pelas revisões pendentes ou escolha qualquer música do repertório.'
+        : 'Você pode ensaiar qualquer música do repertório para reforçar a memória.') + '</p></div>' +
+      (due.length ? '<button class="btn btn-primary" data-action="practice-song" data-id="' + escapeHtml(due[0].id) + '">' +
+        icon('play') + ' Praticar próxima</button>' : '') +
+      '</div>' +
+      '<div class="practice-summary-stats">' +
+      statCard('Pendentes', due.length, due.length ? 'warning' : '') +
+      statCard('Ensaiadas hoje', practicedToday, practicedToday ? 'success' : '') +
+      statCard('Domínio médio', avgMastery() + '%', 'primary') +
+      '</div></section>';
+
+    html += '<div class="section"><div class="section-heading-row">' +
+      '<h2 class="section-title">Revisões pendentes (' + due.length + ')</h2>' +
+      tip('Uma revisão fica pendente quando o intervalo do cartão SM-2 vence. Quanto antes você avaliar, mais confiável fica o agendamento.') +
+      '</div>';
     if (!due.length) {
-      html += '<div class="empty">Nenhuma revisão pendente. Você ainda pode praticar qualquer música abaixo.</div>';
+      html += '<div class="empty"><span class="empty-mark">' + icon('check') + '</span>' +
+        'Nenhuma revisão pendente. Use a busca abaixo para praticar qualquer música.</div>';
     } else {
       html += '<div class="song-picker">';
       due.forEach(function (s) {
         var card = ensureCard(s);
-        html += '<div class="pick-row">' + avatarHtml(getSinger(s.singerId), 36) + '<div class="pick-info"><strong>' + escapeHtml(s.title) + '</strong>' +
-          '<small>' + escapeHtml(singerName(s.singerId)) + ' · Domínio ' + SRS.mastery(card) + '% · ' + dueLabel(card) + '</small></div>' +
-          '<button class="btn btn-primary btn-sm" data-action="pick-song" data-id="' + escapeHtml(s.id) + '">Praticar</button></div>';
+        var units = (s.sections || []).filter(function (u) { return u && u.name; }).length;
+        html += '<div class="pick-row">' + avatarHtml(getSinger(s.singerId), 36) +
+          '<div class="pick-info"><strong>' + escapeHtml(s.title) + '</strong>' +
+          '<small>' + escapeHtml(singerName(s.singerId)) + ' · ' + dueLabel(card) +
+          (s.key ? ' · Tom ' + escapeHtml(s.key) : '') +
+          (units ? ' · ' + units + (units === 1 ? ' trecho' : ' trechos') : '') + '</small></div>' +
+          '<button class="btn btn-primary btn-sm" data-action="practice-song" data-id="' + escapeHtml(s.id) + '">' +
+          icon('play') + ' Praticar</button></div>';
       });
       html += '</div>';
     }
     html += '</div>';
 
-    html += '<div class="section"><h2 class="section-title">Praticar outra música</h2>';
+    var query = norm(practiceSearchTerm).trim();
+    var others = state.songs.filter(function (s) {
+      if (!query) return true;
+      return norm(s.title + ' ' + singerName(s.singerId) + ' ' + (s.genre || '')).indexOf(query) !== -1;
+    }).sort(function (a, b) {
+      return String(a.title).localeCompare(String(b.title), 'pt-BR', { sensitivity: 'base' });
+    });
+
+    html += '<div class="section"><div class="section-heading-row">' +
+      '<h2 class="section-title">Praticar outra música</h2>' +
+      tip('Ensaios extras não substituem as revisões: eles apenas atualizam o cartão da música escolhida.') +
+      '</div>' +
+      '<div class="filters practice-filters">' +
+      '<input id="practiceSearch" class="search" aria-label="Buscar música para praticar" ' +
+      'placeholder="Buscar música ou cantor..." value="' + escapeHtml(practiceSearchTerm) + '">' +
+      '<span class="list-count">' + others.length + (others.length === 1 ? ' música' : ' músicas') + '</span>' +
+      '</div>';
+
     if (!state.songs.length) {
-      html += '<div class="empty">Cadastre uma música primeiro.</div>';
+      html += '<div class="empty"><span class="empty-mark">' + icon('music') + '</span>' +
+        'Cadastre uma música primeiro.</div>';
+    } else if (!others.length) {
+      html += '<div class="empty">Nenhuma música corresponde à busca.</div>';
     } else {
       html += '<div class="song-picker">';
-      state.songs.forEach(function (s) {
+      others.forEach(function (s) {
         var card = ensureCard(s);
-        html += '<div class="pick-row">' + avatarHtml(getSinger(s.singerId), 36) + '<div class="pick-info"><strong>' + escapeHtml(s.title) + '</strong>' +
-          '<small>' + escapeHtml(singerName(s.singerId)) + ' · Próxima revisão: ' + formatDay(card.due) + '</small></div>' +
-          '<button class="btn btn-ghost btn-sm" data-action="pick-song" data-id="' + escapeHtml(s.id) + '">Praticar</button></div>';
+        html += '<div class="pick-row">' + avatarHtml(getSinger(s.singerId), 36) +
+          '<div class="pick-info"><strong>' + escapeHtml(s.title) + '</strong>' +
+          '<small>' + escapeHtml(singerName(s.singerId)) + ' · Domínio ' + SRS.mastery(card) + '% · ' +
+          'Próxima: ' + formatDay(card.due) + '</small></div>' +
+          '<button class="btn btn-sm" data-action="practice-song" data-id="' + escapeHtml(s.id) + '">' +
+          icon('play') + ' Praticar</button></div>';
       });
-      html += '</div></div>';
+      html += '</div>';
     }
-    html += '</div>';
+    html += '</div></div>';
+
     container.innerHTML = html;
   }
 
@@ -1981,43 +2120,94 @@
     var song = getSong(practice.songId);
     if (!song) { practice.step = 'setup'; return renderSetupStep(container, actions); }
     var card = ensureCard(song);
-    actions.innerHTML = '<button class="btn btn-ghost" data-action="practice-cancel">Cancelar</button>';
-
-    var units = song.sections && song.sections.length ? song.sections : [{ id: 'full', name: 'Música inteira', confidence: 3 }];
+    var units = practiceUnits(song);
+    if (!practice.activeUnit || !units.some(function (u) { return u.id === practice.activeUnit; })) {
+      practice.activeUnit = units[0].id;
+    }
+    var rated = units.filter(function (u) { return practice.ratings[u.id] != null; }).length;
     var labels = ['Esqueci', 'Muito difícil', 'Difícil', 'Razoável', 'Bom', 'Perfeito'];
 
-    var html = '<div class="practice-setup">';
-    html += '<div class="panel"><h3>' + escapeHtml(song.title) + '</h3>' +
+    actions.innerHTML =
+      '<button class="btn" data-action="stage-song" data-id="' + escapeHtml(song.id) + '">' +
+      icon('stage') + ' Ver letra no palco</button>' +
+      '<button class="btn btn-ghost" data-action="practice-cancel">Cancelar</button>';
+
+    var html = '<div class="practice-setup practice-grid">';
+    html += '<div class="practice-main">';
+
+    html += '<div class="panel practice-song-head">' +
+      '<div class="section-heading-row"><h3>' + escapeHtml(song.title) + '</h3>' + tip(
+        'Cante cada trecho sem consultar a letra e dê uma nota de 0 (esqueci) a 5 (perfeito). ' +
+        'A nota alimenta diretamente o agendamento SM-2.') + '</div>' +
       '<p class="muted">' + escapeHtml(singerName(song.singerId)) +
-      (song.key ? ' · Tom: <strong>' + escapeHtml(song.key) + '</strong>' : '') +
-      ' · Domínio atual: ' + SRS.mastery(card) + '% · ' +
-      'Revisão: ' + dueLabel(card) + '</p></div>';
-    html += '<p class="muted">Avalie o quanto você conseguiu executar/cantar cada trecho <strong>agora</strong>, sem consultar. ' +
-      'Seja honesto — a qualidade da avaliação define a qualidade do agendamento.</p>';
+      (song.key ? ' · <span class="chip key">' + escapeHtml(song.key) + '</span>' : '') +
+      ' · Domínio atual: ' + SRS.mastery(card) + '% · Revisão: ' + dueLabel(card) + '</p>' +
+      '<div class="rate-progress">' +
+      '<div class="rate-progress-top"><span>Trechos avaliados</span><strong>' + rated + ' / ' + units.length + '</strong></div>' +
+      '<div class="readiness' + (rated === units.length ? ' good' : '') + '"><span style="width:' +
+      Math.round(rated / units.length * 100) + '%"></span></div>' +
+      '</div></div>';
 
-    html += '<div class="field-row" style="margin:14px 0"><button class="btn btn-ghost btn-sm" data-action="rate-all" data-q="3">Marcar todos como Razoável (3)</button></div>';
+    html += '<div class="section-heading-row rate-heading">' +
+      '<h2 class="section-title">Avaliação dos trechos</h2>' +
+      tip('Use as teclas 0 a 5 para avaliar o trecho destacado. ' +
+        'O foco avança automaticamente para o próximo trecho ainda não avaliado.') + '</div>';
 
-    units.forEach(function (u) {
+    html += '<div class="field-row rate-all-row">' +
+      '<button class="btn btn-sm btn-rate-all" data-action="rate-all" data-q="3">' +
+      icon('check') + ' Marcar todos como Razoável (3)</button>' +
+      '<span class="small muted">Atalho: pressione 3 com um trecho em foco.</span></div>';
+
+    units.forEach(function (u, i) {
       var sel = practice.ratings[u.id];
-      html += '<div class="section-review"><h4>' + escapeHtml(u.name) + '</h4>' +
-        '<div class="hint">Confiança anterior: ' + u.confidence + '/5</div>' +
+      var conf = Number(u.confidence);
+      if (!isFinite(conf)) conf = 3;
+      html += '<div class="section-review' + (practice.activeUnit === u.id ? ' active' : '') + '" ' +
+        'data-unit-wrap="' + escapeHtml(u.id) + '">' +
+        '<div class="review-heading"><h4><span class="unit-tag">' + markLetter(i) + '</span> ' +
+        escapeHtml(u.name) + '</h4>' +
+        tip('Confiança anterior: ' + conf + '/5. Compare com o que você sente agora.') + '</div>' +
         '<div class="rating-group">';
       for (var q = 0; q <= 5; q++) {
-        html += '<button type="button" class="rating-btn' + (sel === q ? ' selected' : '') + '" data-action="rate" data-unit="' + escapeHtml(u.id) + '" data-q="' + q + '" aria-pressed="' + (sel === q ? 'true' : 'false') + '" title="' + labels[q] + '">' + q + ' ' + labels[q] + '</button>';
+        html += '<button type="button" class="rating-btn' + (sel === q ? ' selected' : '') +
+          '" data-action="rate" data-unit="' + escapeHtml(u.id) + '" data-q="' + q + '" ' +
+          'aria-pressed="' + (sel === q ? 'true' : 'false') + '" title="' + labels[q] + '">' +
+          q + ' <span>' + labels[q] + '</span></button>';
       }
       html += '</div></div>';
     });
 
-    html += '<div style="margin-top:20px;display:flex;gap:10px">' +
-      '<button class="btn btn-primary" data-action="finish-practice">Concluir prática</button>' +
+    html += '<div class="practice-actions">' +
+      '<button class="btn btn-primary" data-action="finish-practice">' + icon('check') + ' Concluir prática</button>' +
       '<button class="btn btn-ghost" data-action="practice-cancel">Cancelar</button></div>';
     html += '</div>';
+
+    html += '<aside class="practice-side">' +
+      '<div class="panel circle-panel">' +
+      '<div class="section-heading-row"><h3>Ciclo das quintas</h3>' +
+      tip('A tonalidade relativa divide o mesmo círculo: a borda mostra os tons maiores e o interior, os menores. ' +
+        'Use o diagrama para visualsar o tom desta música e seu relativo.') + '</div>' +
+      circleOfFifthsSvg(song.key) +
+      '<p class="small muted">' + escapeHtml(keyCaption(song.key)) + '</p>' +
+      '</div>' +
+      '<div class="panel"><h3>Dica de execução</h3>' +
+      '<p class="small">Trechos com confiança baixa merecem atenção primeiro. ' +
+      'Depois de avaliar, o sistema agenda a próxima revisão e destaca o que ficou fraco no resultado.</p>' +
+      '<button class="btn btn-sm" data-action="stage-song" data-id="' + escapeHtml(song.id) + '">' +
+      icon('stage') + ' Abrir letra no palco</button></div>' +
+      '</aside></div>';
+
     container.innerHTML = html;
   }
 
   function renderResultStep(container, actions) {
     var r = practice.result;
-    actions.innerHTML = '<button class="btn btn-primary" data-action="practice-again">Praticar outra</button>';
+    var repeatId = practice.songId;
+    var repeatSong = repeatId ? getSong(repeatId) : null;
+    actions.innerHTML =
+      (repeatSong ? '<button class="btn" data-action="repeat-song" data-id="' + escapeHtml(repeatId) + '">' +
+        icon('refresh') + ' Repetir esta música</button>' : '') +
+      '<button class="btn btn-primary" data-action="practice-again">' + icon('plus') + ' Praticar outra</button>';
     var resultIcon = r.avg >= 4 ? 'spark' : r.avg >= 3 ? 'check' : 'practice';
     var msg = r.avg >= 4 ? 'Excelente! A memória foi consolidada.' : r.avg >= 3 ? 'Bom trabalho! Continue assim.' : 'Tudo bem — revisões mais cedo aceleram a fixação.';
 
@@ -2046,7 +2236,8 @@
       'Lapses: <strong>' + r.lapses + '</strong></p>' +
       '<p class="small muted">Intervalo anterior: ' + SRS.formatInterval(r.prevInterval) + ' → novo intervalo: ' + SRS.formatInterval(r.interval) + '</p></div>';
 
-    html += '<div style="display:flex;gap:10px"><button class="btn btn-ghost" data-action="goto-songs">Voltar ao repertório</button></div></div>';
+    html += '<div class="practice-actions"><button class="btn btn-ghost" data-action="goto-songs">' +
+      icon('library') + ' Voltar ao repertório</button></div></div>';
     container.innerHTML = html;
   }
 
@@ -2417,8 +2608,8 @@
         searchTerm = '';
         navigate('songs');
         break;
-      case 'goto-songs': practice = { step: 'setup', songId: null, ratings: {}, result: null }; navigate('songs'); break;
-      case 'goto-dashboard': practice = { step: 'setup', songId: null, ratings: {}, result: null }; navigate('dashboard'); break;
+      case 'goto-songs': practice = { step: 'setup', songId: null, ratings: {}, result: null, activeUnit: null }; navigate('songs'); break;
+      case 'goto-dashboard': practice = { step: 'setup', songId: null, ratings: {}, result: null, activeUnit: null }; navigate('dashboard'); break;
 
       case 'add-singer': singerModal(null); break;
       case 'edit-singer': singerModal(getSinger(id)); break;
@@ -2467,39 +2658,47 @@
       }
 
       case 'practice-song':
-        practice = { step: 'rate', songId: id, ratings: {}, result: null };
+        practice = { step: 'rate', songId: id, ratings: {}, result: null, activeUnit: null };
         navigate('practice');
         break;
 
       case 'pick-song':
-        practice = { step: 'rate', songId: id, ratings: {}, result: null };
+        practice = { step: 'rate', songId: id, ratings: {}, result: null, activeUnit: null };
         render();
         break;
 
       case 'rate':
         practice.ratings[btn.dataset.unit] = Number(btn.dataset.q);
+        practice.activeUnit = btn.dataset.unit;
         render();
+        focusRating(btn.dataset.unit, btn.dataset.q);
         break;
 
       case 'rate-all': {
         var q = Number(btn.dataset.q);
         var songAll = getSong(practice.songId);
         if (!songAll) break;
-        var unitsAll = songAll.sections && songAll.sections.length ? songAll.sections : [{ id: 'full' }];
+        var unitsAll = practiceUnits(songAll);
         unitsAll.forEach(function (u) { practice.ratings[u.id] = q; });
+        practice.activeUnit = unitsAll[0].id;
         render();
         break;
       }
 
+      case 'repeat-song':
+        practice = { step: 'rate', songId: id, ratings: {}, result: null, activeUnit: null };
+        render();
+        break;
+
       case 'practice-cancel':
-        practice = { step: 'setup', songId: null, ratings: {}, result: null };
+        practice = { step: 'setup', songId: null, ratings: {}, result: null, activeUnit: null };
         render();
         break;
 
       case 'finish-practice': finishPractice(); break;
 
       case 'practice-again':
-        practice = { step: 'setup', songId: null, ratings: {}, result: null };
+        practice = { step: 'setup', songId: null, ratings: {}, result: null, activeUnit: null };
         render();
         break;
 
@@ -2541,6 +2740,13 @@
       renderSongs($('#viewContainer'), $('#topbarActions'));
       var input = $('#searchInput');
       if (input) { input.focus(); input.setSelectionRange(pos, pos); }
+    }
+    if (e.target && e.target.id === 'practiceSearch') {
+      practiceSearchTerm = e.target.value;
+      var caret = e.target.selectionStart;
+      renderPractice($('#viewContainer'), $('#topbarActions'));
+      var field = $('#practiceSearch');
+      if (field) { field.focus(); field.setSelectionRange(caret, caret); }
     }
   });
 
@@ -2611,6 +2817,21 @@
       return;
     }
 
+    if (currentView === 'practice' && practice.step === 'rate' && /^[0-5]$/.test(e.key) &&
+        $('#modalOverlay').hidden && e.target &&
+        !/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) {
+      var rateSong = getSong(practice.songId);
+      if (rateSong) {
+        e.preventDefault();
+        var rateUnits = practiceUnits(rateSong);
+        var unitId = practice.activeUnit || rateUnits[0].id;
+        practice.ratings[unitId] = Number(e.key);
+        practice.activeUnit = nextUnratedUnit(rateUnits, unitId);
+        render();
+        focusRating(unitId, Number(e.key));
+      }
+    }
+
     trapModalFocus(e);
     if (e.key === 'Escape' && !$('#modalOverlay').hidden) {
       e.preventDefault();
@@ -2627,7 +2848,7 @@
     var song = getSong(practice.songId);
     if (!song) return;
     var card = ensureCard(song);
-    var units = song.sections && song.sections.length ? song.sections : [{ id: 'full', name: 'Música inteira', confidence: 3 }];
+    var units = practiceUnits(song);
 
     var ratings = [];
     for (var i = 0; i < units.length; i++) {

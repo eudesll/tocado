@@ -1,14 +1,14 @@
 {
-  "name": "Repertório — músicas e revisões",
-  "short_name": "Repertório",
-  "description": "Repertório musical local-first: organize músicas, cantores, tons, letras, vídeos e revisões espaçadas.",
+  "name": "Tocadô — músicas e ensaios",
+  "short_name": "Tocadô",
+  "description": "Tocadô: organize músicas, cantores, tons, letras, vídeos e ensaios de repertório, tudo local-first.",
   "lang": "pt-BR",
   "dir": "ltr",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#f7f7f5",
-  "theme_color": "#2f6f5e",
+  "background_color": "#efe9db",
+  "theme_color": "#232019",
   "categories": ["music", "productivity", "education"],
   "icons": [
     {

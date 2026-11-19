@@ -1,8 +1,8 @@
-# Repertório — Suas músicas, primeiro
+# Tocadô — Suas músicas, primeiro
 
 Aplicação web **sem dependências externas** focada no **repertório em si**: uma lista
-simples de músicas, cantores, gêneros, tons e durações. O sistema de revisões espaçadas
-existe, mas fica em segundo plano, acessível pela aba discreta "Revisões".
+simples de músicas, cantores, gêneros, tons e durações. O sistema de ensaios e revisões
+espaçadas fica integrado às telas Hoje e Ensaios.
 Os dados são persistidos no `localStorage` do próprio navegador.
 
 > **Site publicado:** <https://eudesll.github.io/repertorio/> — GitHub Pages servindo
@@ -140,8 +140,13 @@ cores, espaçamento, raios e sombras, sem framework nem build:
 
 - **Partitura viva (Fase 1)** — papel quente, tinta escura, lápis coral e marca-texto
   âmbar; títulos serifados (Iowan Old Style/Palatino/Georgia) e números/tom em mono.
-  Navegação **Hoje / Repertório / Palco / Ensaios**, Ajustes por engrenagem, fichas em
+  No Tocadô, a navegação é **Hoje / Repertório / Palco / Ensaios**, Ajustes por engrenagem, fichas em
   drawer lateral, ícones SVG próprios (sem emoji) e paleta `Ctrl/⌘ + K`.
+- **Ensaios** — painel inicial com pendentes, ensaios do dia e atalho "Praticar próxima",
+  busca por música/cantor e marcações A/B/C dos trechos. Na sessão de uma música há
+  progresso de avaliação, atalhos `0`–`5`, dicas em tooltip discreto, botão destacado
+  "Marcar todos como Razoável" e um **círculo das quintas em SVG** gerado a partir do
+  tom da música, com a tonalidade relativa destacada.
 - **Componentes consistentes** — botões (primário, secundário, fantasma e perigo), chips,
   cartões, painéis, campos, tabela, modais e toasts compartilham os mesmos tokens e
   estados de foco visíveis.
