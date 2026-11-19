@@ -1,18 +1,36 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Tocadô">
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#3f8b76"/>
-      <stop offset="1" stop-color="#255747"/>
+      <stop offset="0" stop-color="#332f25"/>
+      <stop offset="1" stop-color="#17150f"/>
+    </linearGradient>
+    <linearGradient id="wood" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f7f2e7"/>
+      <stop offset="1" stop-color="#d9cfb9"/>
     </linearGradient>
   </defs>
   <rect width="512" height="512" rx="112" fill="url(#bg)"/>
-  <circle cx="256" cy="256" r="176" fill="#ffffff" opacity=".08"/>
-  <g fill="#ffffff">
-    <ellipse cx="188" cy="350" rx="62" ry="48" transform="rotate(-18 188 350)"/>
-    <ellipse cx="338" cy="318" rx="50" ry="39" transform="rotate(-18 338 318)"/>
-    <rect x="234" y="128" width="26" height="210" rx="13"/>
-    <rect x="374" y="106" width="26" height="196" rx="13"/>
-    <path d="M234 128h166v58H234z" rx="18"/>
-    <path d="M234 128c0-18 14-32 32-32h118c16 0 28 13 28 29v23H234z" opacity=".92"/>
+  <circle cx="256" cy="256" r="192" fill="#f2ecdd" opacity=".05"/>
+  <g transform="translate(256 276) rotate(-32) scale(.82)">
+    <rect x="-17" y="-268" width="34" height="172" rx="5" fill="url(#wood)"/>
+    <rect x="-26" y="-309" width="52" height="51" rx="13" fill="url(#wood)"/>
+    <g fill="#bf4a2b">
+      <circle cx="-31" cy="-295" r="5"/><circle cx="-31" cy="-278" r="5"/><circle cx="-31" cy="-261" r="5"/>
+      <circle cx="31" cy="-295" r="5"/><circle cx="31" cy="-278" r="5"/><circle cx="31" cy="-261" r="5"/>
+    </g>
+    <g stroke="#232019" stroke-width="2" opacity=".35">
+      <path d="M-17 -242h34M-17 -216h34M-17 -190h34M-17 -164h34M-17 -138h34M-17 -112h34"/>
+    </g>
+    <path d="M0 -108 C36 -108 62 -86 62 -52 C62 -25 45 -8 43 14 C41 32 57 46 74 64
+             C101 92 101 142 72 168 C46 191 -46 191 -72 168 C-101 142 -101 92 -74 64
+             C-57 46 -41 32 -43 14 C-45 -8 -62 -25 -62 -52 C-62 -86 -36 -108 0 -108 Z"
+          fill="url(#wood)" stroke="#efe9db" stroke-width="3" stroke-linejoin="round"/>
+    <rect x="-21" y="-268" width="42" height="8" rx="2" fill="#bf4a2b"/>
+    <circle cx="0" cy="45" r="38" fill="none" stroke="#bf4a2b" stroke-width="7"/>
+    <circle cx="0" cy="45" r="27" fill="#17150f"/>
+    <rect x="-30" y="135" width="60" height="13" rx="4" fill="#232019"/>
+    <g stroke="#efe9db" stroke-width="1.6" opacity=".65">
+      <path d="M-18 -261 L-22 142M-11 -261 L-13 142M-4 -261 L-4 142M4 -261 L4 142M11 -261 L13 142M18 -261 L22 142"/>
+    </g>
   </g>
 </svg>

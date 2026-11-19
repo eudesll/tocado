@@ -163,6 +163,7 @@
     return KEY_NAMES[String(symbol).trim()] || '';
   }
 
+  // Chave legada preservada para não perder a preferência de tema do usuário.
   var THEME_KEY = 'repertorio_theme';
   var themeMedia = globalMatchMedia();
 
@@ -2910,7 +2911,7 @@
     var url = URL.createObjectURL(blob);
     var a = document.createElement('a');
     a.href = url;
-    a.download = 'repertorio-' + new Date().toISOString().slice(0, 10) + '.json';
+    a.download = 'tocado-' + new Date().toISOString().slice(0, 10) + '.json';
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);

@@ -6,6 +6,7 @@
 (function (global) {
   'use strict';
 
+  // Nome legado preservado: alterá-lo apagaria os dados já salvos no navegador.
   var STORAGE_KEY = 'repertorio_musical_v1';
   var SCHEMA_VERSION = 2;
 

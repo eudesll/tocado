@@ -5,7 +5,7 @@ simples de músicas, cantores, gêneros, tons e durações. O sistema de ensaios
 espaçadas fica integrado às telas Hoje e Ensaios.
 Os dados são persistidos no `localStorage` do próprio navegador.
 
-> **Site publicado:** <https://eudesll.github.io/repertorio/> — GitHub Pages servindo
+> **Site publicado:** <https://eudesll.github.io/tocado/> — GitHub Pages servindo
 > a branch `main` (pasta raiz) diretamente, sem etapa de build. O service worker e o
 > manifesto funcionam no endereço publicado, então o app pode ser instalado como PWA.
 

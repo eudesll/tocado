@@ -1,8 +1,8 @@
 {
-  "name": "repertorio-musical",
+  "name": "tocado",
   "version": "2.0.0",
   "private": true,
-  "description": "SPA local-first para organizar repertório musical, letras, vídeos e revisões espaçadas.",
+  "description": "Tocadô: SPA local-first para organizar repertório musical, letras, vídeos e ensaios.",
   "scripts": {
     "test": "node --test tests/*.test.js",
     "serve": "python3 -m http.server 8080"
