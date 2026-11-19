@@ -539,7 +539,7 @@
     dashboard: { title: 'Hoje', sub: 'O que praticar agora' },
     songs: { title: 'Repertório', sub: 'Músicas e cantores do seu repertório' },
     singers: { title: 'Cantores', sub: 'Os intérpretes do seu repertório' },
-    stage: { title: 'Palco', sub: 'Setlists com letra grande e navegação para tocar ao vivo' },
+    stage: { title: 'Palco', sub: 'Monte setlists com músicas do repertório e execute com letra grande' },
     practice: { title: 'Ensaios', sub: 'Prática espaçada, uma música por vez' },
     song: { title: 'Música', sub: 'Resumo e vídeos da música' },
     method: { title: 'Como funciona', sub: 'O método por trás do sistema de revisões' },
