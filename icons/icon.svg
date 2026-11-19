@@ -11,6 +11,8 @@
   </defs>
   <rect width="512" height="512" rx="112" fill="url(#bg)"/>
   <circle cx="256" cy="256" r="192" fill="#f2ecdd" opacity=".05"/>
+  <!-- Zoom na boca e no início do braço, mantendo o fundo do ícone intacto. -->
+  <g transform="translate(269 365) scale(1.55) translate(-269 -365)">
   <g transform="translate(256 276) rotate(-32) scale(.82)">
     <rect x="-17" y="-268" width="34" height="172" rx="5" fill="url(#wood)"/>
     <rect x="-26" y="-309" width="52" height="51" rx="13" fill="url(#wood)"/>
@@ -32,5 +34,6 @@
     <g stroke="#efe9db" stroke-width="1.6" opacity=".65">
       <path d="M-18 -261 L-22 142M-11 -261 L-13 142M-4 -261 L-4 142M4 -261 L4 142M11 -261 L13 142M18 -261 L22 142"/>
     </g>
+  </g>
   </g>
 </svg>
