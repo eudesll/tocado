@@ -138,9 +138,10 @@ python3 -m http.server 8080
 A interface usa **tokens de design** em CSS (`:root` e `:root[data-theme="dark"]`) para
 cores, espaçamento, raios e sombras, sem framework nem build:
 
-- **Estética editorial** — papel quente no tema claro, verde profundo como cor de ação e
-  tipografia serifada nos títulos (Iowan Old Style/Palatino/Georgia, com fallback para a
-  fonte do sistema). A letra das músicas usa a mesma serifada em tamanho de leitura.
+- **Partitura viva (Fase 1)** — papel quente, tinta escura, lápis coral e marca-texto
+  âmbar; títulos serifados (Iowan Old Style/Palatino/Georgia) e números/tom em mono.
+  Navegação **Hoje / Repertório / Palco / Ensaios**, Ajustes por engrenagem, fichas em
+  drawer lateral, ícones SVG próprios (sem emoji) e paleta `Ctrl/⌘ + K`.
 - **Componentes consistentes** — botões (primário, secundário, fantasma e perigo), chips,
   cartões, painéis, campos, tabela, modais e toasts compartilham os mesmos tokens e
   estados de foco visíveis.
@@ -250,14 +251,14 @@ Esta lista existe apenas neste documento; a interface não exibe mais a seção 
     personalizados a partir do histórico.
 
 ### Interface e experiência (backlog de design)
-14. **Busca global com atalho** — `Ctrl/⌘ + K` para encontrar música, cantor ou trecho
-    sem trocar de aba, com resultados agrupados e navegação por teclado.
+14. ~~Busca global com atalho~~ — entregue na Fase 1 (`Ctrl/⌘ + K`, resultados agrupados
+    e navegação por teclado). Próximo: indexar trechos e letras.
 15. **Visualização em cartões/grade** — alternância entre tabela e grade com capa do
     artista, útil para repertórios grandes em telas pequenas.
 16. **Arrastar para reordenar o setlist** — ordenação manual das músicas de uma sessão
     ou apresentação, com salvamento da ordem.
-17. **Modo palco** — tela cheia com letra/cifra em fonte grande, rolagem automática
-    ajustável e controles mínimos para uso durante a apresentação.
+17. ~~Modo palco~~ — base entregue na Fase 1 (tela cheia, letra grande, navegação por
+    teclado e controle de tamanho). Próximo: rolagem automática e cifras.
 18. **Personalização de densidade e cor de destaque** — opções de espaçamento
     compacto/confortável e troca da cor de acento, persistidas por usuário.
 19. **Estados de carregamento e esqueleto** — placeholders durante buscas automáticas

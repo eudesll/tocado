@@ -6,11 +6,12 @@
   'use strict';
 
   var state = Store.load();
-  var currentView = 'songs';
+  var currentView = 'dashboard';
   var modalSubmitHandler = null;
   var modalToken = 0; // invalida retornos assíncronos de modais já fechados
   var searchTerm = '';
   var songFilters = { singer: '', genre: '', dueOnly: false, sort: 'title', dir: 'asc' };
+  var repertoireTab = 'songs';
   var currentSongId = null;
   var currentVideoId = null;
   var lastFocusedElement = null;
@@ -18,6 +19,10 @@
 
   // Estado transitório do fluxo de prática
   var practice = { step: 'setup', songId: null, ratings: {}, result: null };
+
+  // Paleta de comandos e modo palco
+  var paletteState = { open: false, items: [], index: 0, previousFocus: null };
+  var stageState = { open: false, songId: null, auto: false, timer: null, font: 2 };
 
   // Estado transitório da foto no formulário de cantor
   var photoDraft = null;
@@ -35,6 +40,23 @@
 
   /* --------------------------- Utilitários --------------------------- */
   function $(sel, root) { return (root || document).querySelector(sel); }
+
+  // Ícones do sprite inline em index.html (sem dependências, herdam currentColor).
+  function icon(name, cls) {
+    return '<svg class="icon' + (cls ? ' ' + cls : '') + '" aria-hidden="true" focusable="false">' +
+      '<use href="#i-' + name + '"></use></svg>';
+  }
+
+  function dateLabel() {
+    var txt = new Date().toLocaleDateString('pt-BR', {
+      weekday: 'long', day: 'numeric', month: 'long'
+    });
+    return txt.charAt(0).toUpperCase() + txt.slice(1);
+  }
+
+  function markLetter(i) {
+    return String.fromCharCode(65 + (i % 26));
+  }
 
   function escapeHtml(v) {
     return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) {
@@ -71,10 +93,8 @@
     document.documentElement.setAttribute('data-theme', theme);
     var btn = $('#themeToggle');
     if (btn) {
-      var icon = theme === 'dark'
-        ? '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.2v2.1M12 19.7v2.1M4.6 4.6l1.5 1.5M17.9 17.9l1.5 1.5M2.2 12h2.1M19.7 12h2.1M4.6 19.4l1.5-1.5M17.9 6.1l1.5-1.5"/></svg>'
-        : '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20.5 14.2A8.6 8.6 0 1 1 9.8 3.5a7 7 0 0 0 10.7 10.7z"/></svg>';
-      btn.innerHTML = icon;
+      var iconName = theme === 'dark' ? 'sun' : 'moon';
+      btn.innerHTML = icon(iconName);
       btn.title = 'Tema ' + (theme === 'dark' ? 'noturno' : 'claro') + ' — clique para alternar';
       btn.setAttribute('aria-label', 'Ativar tema ' + (theme === 'dark' ? 'claro' : 'escuro'));
       btn.setAttribute('aria-pressed', theme === 'dark' ? 'true' : 'false');
@@ -420,21 +440,24 @@
 
   /* --------------------------- Navegação --------------------------- */
   var viewMeta = {
-    songs: { title: 'Músicas', sub: 'Todas as músicas do seu repertório' },
+    dashboard: { title: 'Hoje', sub: 'O que praticar agora' },
+    songs: { title: 'Repertório', sub: 'Músicas e cantores do seu repertório' },
     singers: { title: 'Cantores', sub: 'Os intérpretes do seu repertório' },
-    dashboard: { title: 'Resumo', sub: 'Um panorama simples do seu repertório' },
-    practice: { title: 'Revisões', sub: 'Prática espaçada — uma funcionalidade opcional' },
+    stage: { title: 'Palco', sub: 'Letra grande, rolagem e navegação para tocar ao vivo' },
+    practice: { title: 'Ensaios', sub: 'Prática espaçada, uma música por vez' },
     song: { title: 'Música', sub: 'Resumo e vídeos da música' },
     method: { title: 'Como funciona', sub: 'O método por trás do sistema de revisões' },
-    data: { title: 'Dados', sub: 'Exporte, importe ou reinicie seu repertório' }
+    data: { title: 'Ajustes', sub: 'Backup, armazenamento e dados de teste' }
   };
 
   function navigate(view) {
     if (!viewMeta[view]) return;
     currentView = view;
+    // A ficha da música e a lista de cantores vivem dentro do Repertório.
+    var navView = (view === 'song' || view === 'singers') ? 'songs' : (view === 'method' ? 'practice' : view);
     var activeNav = null;
     document.querySelectorAll('.nav-item').forEach(function (b) {
-      var active = b.dataset.view === view;
+      var active = b.dataset.view === navView;
       b.classList.toggle('active', active);
       if (active) {
         b.setAttribute('aria-current', 'page');
@@ -449,6 +472,16 @@
     }
     $('#viewTitle').textContent = viewMeta[view].title;
     $('#viewSubtitle').textContent = viewMeta[view].sub;
+    var eyebrow = $('#viewEyebrow');
+    if (eyebrow) {
+      if (view === 'dashboard') {
+        eyebrow.hidden = false;
+        eyebrow.textContent = dateLabel();
+      } else {
+        eyebrow.hidden = true;
+        eyebrow.textContent = '';
+      }
+    }
     render();
     window.scrollTo(0, 0);
     var heading = currentView === 'song' ? $('#viewContainer h1') : $('#viewTitle');
@@ -468,6 +501,7 @@
       case 'dashboard': renderDashboard(container, actions); break;
       case 'singers': renderSingers(container, actions); break;
       case 'songs': renderSongs(container, actions); break;
+      case 'stage': renderStage(container, actions); break;
       case 'practice': renderPractice(container, actions); break;
       case 'song': renderSongSummary(container, actions); break;
       case 'method': renderMethod(container, actions); break;
@@ -486,44 +520,126 @@
     return 52;
   }
 
+  // Trechos mais frágeis do repertório, no máximo um por música.
+  function weakestUnits(limit) {
+    var units = [];
+    state.songs.forEach(function (s) {
+      var card = ensureCard(s);
+      (s.sections || []).forEach(function (u, i) {
+        if (!u || !u.name) return;
+        var conf = Number(u.confidence);
+        if (!isFinite(conf)) conf = 3;
+        if (conf > 3) return;
+        units.push({
+          song: s, card: card, section: u, confidence: conf,
+          mastery: SRS.mastery(card), mark: markLetter(i)
+        });
+      });
+    });
+    units.sort(function (a, b) {
+      return a.confidence - b.confidence || a.mastery - b.mastery;
+    });
+    var seen = Object.create(null);
+    units = units.filter(function (u) {
+      if (seen[u.song.id]) return false;
+      seen[u.song.id] = true;
+      return true;
+    });
+    if (!units.length) {
+      dueSongs().slice(0, limit).forEach(function (song) {
+        var card = ensureCard(song);
+        units.push({
+          song: song, card: card, section: null, confidence: 0,
+          mastery: SRS.mastery(card), mark: 'A'
+        });
+      });
+    }
+    return units.slice(0, limit);
+  }
+
+  function readinessBar(pct) {
+    pct = Math.max(4, Math.min(100, Math.round(pct || 0)));
+    return '<div class="readiness' + (pct >= 70 ? ' good' : '') + '" role="img" aria-label="Domínio ' +
+      pct + '%"><span style="width:' + pct + '%"></span></div>';
+  }
+
   function renderDashboard(container, actions) {
     var due = dueSongs();
-    var generos = {};
-    state.songs.forEach(function (s) { if (s.genre) generos[s.genre] = 1; });
+    var weak = weakestUnits(3);
+    var minutes = Math.max(6, weak.length * 4);
 
-    actions.innerHTML = '<button class="btn" data-action="goto-songs">Ir para o repertório</button>';
+    actions.innerHTML = '<button class="btn" data-action="goto-songs">' + icon('library') + ' Repertório</button>' +
+      '<button class="btn btn-primary" data-action="add-song">' + icon('plus') + ' Música</button>';
 
-    var html = '<div class="stats">' +
-      statCard('Músicas', state.songs.length) +
-      statCard('Cantores', state.singers.length) +
-      statCard('Gêneros', Object.keys(generos).length) +
-      statCard('Revisões pendentes', due.length, due.length ? 'warning' : '') +
-      statCard('Domínio médio', avgMastery() + '%', 'primary') +
-      statCard('Sequência', computeStreak() + (computeStreak() === 1 ? ' dia' : ' dias')) +
+    var html = '<section class="hero">' +
+      '<div class="hero-main">' +
+      '<p class="hero-eyebrow">' + (weak.length ? 'Sugestão de hoje' : 'Sem pendências') + '</p>' +
+      '<h2>' + (weak.length ? 'Seu ensaio de hoje' : 'Tudo em dia por aqui') + '</h2>' +
+      '<p class="hero-sub">' + (weak.length
+        ? weak.length + (weak.length === 1 ? ' trecho' : ' trechos') + ' · cerca de ' + minutes +
+          ' min · cante sem consultar a letra'
+        : 'Nenhum trecho frágil ou revisão pendente. Escolha uma música para manter o ritmo.') + '</p>' +
+      '<div class="staff" aria-hidden="true"></div>';
+
+    if (weak.length) {
+      html += '<div class="units">' + weak.map(function (u) {
+        return '<div class="unit-row">' +
+          '<span class="unit-mark" aria-hidden="true">' + u.mark + '</span>' +
+          '<div class="unit-body">' +
+          '<div class="unit-title">' +
+          (u.section ? escapeHtml(u.section.name) + ' · ' + escapeHtml(u.song.title) : escapeHtml(u.song.title)) +
+          '</div>' +
+          '<div class="unit-meta">' + escapeHtml(singerName(u.song.singerId)) +
+          (u.section ? ' · confiança ' + u.confidence + '/5' : ' · ' + dueLabel(u.card)) +
+          ' · ' + SRS.mastery(u.card) + '% de domínio</div></div>' +
+          '<div class="unit-bars">' + readinessBar(u.mastery) + '</div>' +
+          '</div>';
+      }).join('') + '</div>' +
+      '<div class="hero-cta">' +
+      '<button class="btn btn-primary" data-action="practice-song" data-id="' + escapeHtml(weak[0].song.id) + '">' +
+      icon('play') + ' Começar ensaio</button>' +
+      '<button class="btn" data-action="goto-practice">Ver todos os ensaios</button>' +
       '</div>';
+    } else {
+      html += '<div class="hero-cta"><button class="btn btn-primary" data-action="goto-songs">' +
+        icon('library') + ' Abrir repertório</button></div>';
+    }
+    html += '</div>';
+
+    html += '<aside class="hero-aside">' +
+      '<div class="hero-stat"><span>Músicas</span><strong>' + state.songs.length + '</strong></div>' +
+      '<div class="hero-stat"><span>Revisões pendentes</span><strong' +
+      (due.length ? ' style="color:var(--accent)"' : '') + '>' + due.length + '</strong></div>' +
+      '<div class="hero-stat"><span>Domínio médio</span><strong>' + avgMastery() + '%</strong></div>' +
+      '<div class="hero-stat"><span>Sequência</span><strong>' + computeStreak() + 'd</strong></div>' +
+      '<button class="btn btn-sm btn-ghost hero-cmd" data-action="open-palette">' +
+      icon('search') + ' Buscar ou comandar <kbd>Ctrl K</kbd></button>' +
+      '</aside></section>';
 
     html += '<div class="panel"><h3>Atividade</h3>' +
       activityCalendar(allActivityEvents(), dashboardWeeks()) + '</div>';
 
     html += '<div class="dashboard-grid"><div class="dashboard-main">';
 
-    html += '<div class="section"><h2 class="section-title">Últimas músicas adicionadas</h2>';
+    html += '<div class="section"><h2 class="section-title">Prontidão por música</h2>';
     if (!state.songs.length) {
-      html += '<div class="empty">Seu repertório está vazio.</div>';
+      html += '<div class="empty"><span class="empty-mark">' + icon('music') + '</span>' +
+        'Seu repertório está vazio. Adicione a primeira música.</div>';
     } else {
-      var recentes = state.songs.slice().sort(function (a, b) {
-        return (Date.parse(b.createdAt) || 0) - (Date.parse(a.createdAt) || 0);
-      }).slice(0, 5);
-      html += '<div class="song-list">' + recentes.map(function (s) {
-        return '<div class="song-row"><div class="song-main">' +
-          '<button type="button" class="song-name-link" data-action="open-song" data-id="' + escapeHtml(s.id) + '">' +
-          '<span class="song-title-text">' + escapeHtml(s.title) + '</span></button>' +
-          '<div class="song-artist">' + escapeHtml(singerName(s.singerId)) +
-          ' · Adicionada em ' + formatDateTime(s.createdAt) + '</div></div>' +
-          '<div class="song-meta">' +
-          (s.key ? '<span class="chip key">' + escapeHtml(s.key) + '</span>' : '') +
-          (s.genre ? '<span class="chip">' + escapeHtml(s.genre) + '</span>' : '') +
-          '</div></div>';
+      var ranked = state.songs.map(function (song) {
+        var card = ensureCard(song);
+        return { song: song, card: card, mastery: SRS.mastery(card) };
+      }).sort(function (a, b) { return a.mastery - b.mastery; }).slice(0, 6);
+      html += '<div class="ready-list">' + ranked.map(function (r) {
+        return '<div class="ready-row">' +
+          '<div class="ready-main">' +
+          '<button type="button" class="song-name-link" data-action="open-song" data-id="' + escapeHtml(r.song.id) + '">' +
+          '<span class="song-title-text">' + escapeHtml(r.song.title) + '</span></button>' +
+          '<div class="ready-meta">' + escapeHtml(singerName(r.song.singerId)) +
+          ' · ' + dueLabel(r.card) + '</div></div>' +
+          '<div class="ready-bar">' + readinessBar(r.mastery) + '</div>' +
+          '<span class="ready-pct">' + r.mastery + '%</span>' +
+          '</div>';
       }).join('') + '</div>';
     }
     html += '</div></div>';
@@ -533,14 +649,10 @@
     }).slice(0, 5);
 
     html += '<aside class="dashboard-side">';
-
-    html += '<div class="section"><h2 class="section-title">Revisões <span class="small muted">· opcional</span></h2>' +
-      '<div class="panel"><p>' + due.length + (due.length === 1 ? ' música com revisão pendente.' : ' músicas com revisão pendente.') + '</p>' +
-      '<button class="btn btn-sm' + (due.length ? ' btn-primary' : '') + '" data-action="goto-practice">Abrir revisões</button></div></div>';
-
-    html += '<div class="section"><h2 class="section-title">Histórico recente</h2>';
+    html += '<div class="section"><h2 class="section-title">Últimos ensaios</h2>';
     if (!sessions.length) {
-      html += '<div class="empty">Nenhuma sessão registrada.</div>';
+      html += '<div class="empty"><span class="empty-mark">' + icon('practice') + '</span>' +
+        'Nenhuma sessão registrada.</div>';
     } else {
       html += '<div class="session-list">' + sessions.map(function (session) {
         var title = session.songTitle || (getSong(session.songId) || {}).title || 'Música removida';
@@ -552,6 +664,12 @@
     }
     html += '</div>';
 
+    html += '<div class="section"><h2 class="section-title">Atalhos</h2>' +
+      '<div class="panel"><p class="small muted">Palco para tocar ao vivo, Ensaios para revisar e Repertório para organizar.</p>' +
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">' +
+      '<button class="btn btn-sm" data-action="goto-stage">' + icon('stage') + ' Palco</button>' +
+      '<button class="btn btn-sm" data-action="goto-practice">' + icon('practice') + ' Ensaios</button>' +
+      '</div></div></div>';
     html += '</aside></div>';
 
     container.innerHTML = html;
@@ -563,34 +681,38 @@
   }
 
   /* =========================== CANTORES =========================== */
-  function renderSingers(container, actions) {
-    actions.innerHTML = '<button class="btn btn-primary" data-action="add-singer">+ Cantor</button>';
-    var html = '';
+  function singersMarkup() {
     if (!state.singers.length) {
-      html = '<div class="empty"><span class="emoji">&#128100;</span>Nenhum cantor cadastrado.</div>';
-    } else {
-      html = '<div class="singer-list">';
-      state.singers.forEach(function (sg) {
-        var count = state.songs.filter(function (s) { return s.singerId === sg.id; }).length;
-        var pending = !!sg.photoPending;
-        html += '<div class="singer-row"><button type="button" class="singer-head clickable" ' +
-          'title="Ver músicas de ' + escapeHtml(sg.name) + '" data-action="filter-singer" data-id="' + escapeHtml(sg.id) + '">' + avatarHtml(sg, 44) +
-          '<span class="singer-info"><strong>' + escapeHtml(sg.name) + '</strong>' +
-          '<span class="small muted">' + count + (count === 1 ? ' música' : ' músicas') +
-          (sg.genre ? ' · ' + escapeHtml(sg.genre) : '') + '</span>' +
-          (pending ? '<span class="tag pending">Buscando foto...</span>' :
-            (!singerHasPhoto(sg) ? '<span class="tag warning">&#9888; ' +
-              (sg.photoMissing ? 'Foto não encontrada' : 'Sem foto') + '</span>' : '')) +
-          '</span></button>' +
-          '<div class="singer-actions">' +
-          (!singerHasPhoto(sg) && !pending ? '<button class="btn btn-sm" data-action="retry-photo" data-id="' + escapeHtml(sg.id) + '">Tentar foto</button>' : '') +
-          '<button class="btn btn-sm" data-action="edit-singer" data-id="' + escapeHtml(sg.id) + '">Editar</button>' +
-          '<button class="btn btn-sm btn-danger" data-action="delete-singer" data-id="' + escapeHtml(sg.id) + '">Excluir</button>' +
-          '</div></div>';
-      });
-      html += '</div>';
+      return '<div class="empty"><span class="empty-mark">' + icon('users') + '</span>' +
+        'Nenhum cantor cadastrado. Os cantores aparecem aqui e nos filtros do repertório.</div>';
     }
-    container.innerHTML = html;
+    var html = '<div class="singer-list">';
+    state.singers.forEach(function (sg) {
+      var count = state.songs.filter(function (s) { return s.singerId === sg.id; }).length;
+      var pending = !!sg.photoPending;
+      html += '<div class="singer-row"><button type="button" class="singer-head clickable" ' +
+        'title="Ver músicas de ' + escapeHtml(sg.name) + '" data-action="filter-singer" data-id="' + escapeHtml(sg.id) + '">' +
+        avatarHtml(sg, 44) +
+        '<span class="singer-info"><strong>' + escapeHtml(sg.name) + '</strong>' +
+        '<span class="small muted">' + count + (count === 1 ? ' música' : ' músicas') +
+        (sg.genre ? ' · ' + escapeHtml(sg.genre) : '') + '</span>' +
+        (pending ? '<span class="tag pending">Buscando foto...</span>' :
+          (!singerHasPhoto(sg) ? '<span class="tag warning">' + icon('alert', 'icon-sm') + ' ' +
+            (sg.photoMissing ? 'Foto não encontrada' : 'Sem foto') + '</span>' : '')) +
+        '</span></button>' +
+        '<div class="singer-actions">' +
+        (!singerHasPhoto(sg) && !pending ? '<button class="btn btn-sm" data-action="retry-photo" data-id="' + escapeHtml(sg.id) + '">Tentar foto</button>' : '') +
+        '<button class="btn btn-sm" data-action="edit-singer" data-id="' + escapeHtml(sg.id) + '">' + icon('edit') + ' Editar</button>' +
+        '<button class="btn btn-sm btn-danger" data-action="delete-singer" data-id="' + escapeHtml(sg.id) + '">' + icon('trash') + ' Excluir</button>' +
+        '</div></div>';
+    });
+    html += '</div>';
+    return html;
+  }
+
+  function renderSingers(container, actions) {
+    actions.innerHTML = '<button class="btn btn-primary" data-action="add-singer">' + icon('plus') + ' Cantor</button>';
+    container.innerHTML = singersMarkup();
   }
 
   function setPhotoStatus(msg) {
@@ -609,7 +731,7 @@
       var src = safeUrl(photoDraft && (photoDraft.dataUrl || photoDraft.url), true);
       preview.innerHTML = src
         ? '<img src="' + escapeHtml(src) + '" alt="Prévia da foto">'
-        : '<span>&#128100;</span>';
+        : icon('users');
     }
     var genreEl = $('#autoGenre');
     if (genreEl) genreEl.textContent = (photoDraft && photoDraft.genre) || '—';
@@ -690,7 +812,7 @@
       '<input name="name" id="singerNameInput" required value="' + escapeHtml(sg.name || '') + '" placeholder="Ex.: Maria Bethânia"></div>' +
       '<div class="field"><label>Foto do artista <span class="auto-tag">automático</span></label>' +
       '<div class="photo-editor">' +
-      '<div class="photo-preview" id="photoPreview"><span>&#128100;</span></div>' +
+      '<div class="photo-preview" id="photoPreview">' + icon('users') + '</div>' +
       '<div class="small muted" id="photoStatus">Os dados serão buscados enquanto você digita.</div>' +
       '</div>' +
       '<input type="hidden" name="photoData"><input type="hidden" name="photoUrl"><input type="hidden" name="photoSource">' +
@@ -804,7 +926,7 @@
     return '<div class="player-poster">' +
       (thumb ? '<img src="' + escapeHtml(thumb) + '" alt="" loading="lazy">' : '') +
       '<a class="poster-play" href="' + escapeHtml(href) + '" target="_blank" rel="noopener noreferrer" ' +
-      'title="Assistir no YouTube">&#9654;</a>' +
+      'title="Assistir no YouTube">' + icon('play') + '</a>' +
       '<div class="poster-note">Abra o vídeo em uma nova aba para assistir</div>' +
       '</div>';
   }
@@ -935,10 +1057,26 @@
       '" data-action="sort" data-sort="' + key + '">' + label + arrow + '</button></th>';
   }
 
+  function repertoireTabs() {
+    return '<div class="rep-tabs"><div class="segmented" role="tablist" aria-label="Repertório">' +
+      '<button type="button" role="tab" aria-selected="' + (repertoireTab === 'songs') + '" ' +
+      'data-action="rep-tab" data-tab="songs">' + icon('library') + ' Músicas</button>' +
+      '<button type="button" role="tab" aria-selected="' + (repertoireTab === 'singers') + '" ' +
+      'data-action="rep-tab" data-tab="singers">' + icon('users') + ' Cantores</button>' +
+      '</div><span class="rep-meta">' + state.songs.length + ' músicas · ' +
+      state.singers.length + ' cantores</span></div>';
+  }
+
   function renderSongs(container, actions) {
+    if (repertoireTab === 'singers') {
+      actions.innerHTML = '<button class="btn btn-primary" data-action="add-singer">' + icon('plus') + ' Cantor</button>';
+      container.innerHTML = repertoireTabs() + singersMarkup();
+      return;
+    }
+
     actions.innerHTML =
-      '<button class="btn" data-action="add-singer">+ Cantor</button>' +
-      '<button class="btn btn-primary" data-action="add-song">+ Música</button>';
+      '<button class="btn" data-action="add-singer">' + icon('users') + ' Cantor</button>' +
+      '<button class="btn btn-primary" data-action="add-song">' + icon('plus') + ' Música</button>';
 
     var genres = {};
     state.songs.forEach(function (s) { if (s.genre) genres[s.genre] = 1; });
@@ -1000,13 +1138,14 @@
       '</div>';
 
     if (!list.length) {
-      container.innerHTML = filterBar + counter + '<div class="empty"><span class="emoji">&#9835;</span>' +
+      container.innerHTML = repertoireTabs() + filterBar + counter +
+        '<div class="empty"><span class="empty-mark">' + icon('music') + '</span>' +
         (state.songs.length ? 'Nenhuma música corresponde aos filtros.' : 'Seu repertório está vazio. Adicione sua primeira música.') +
         '</div>';
       return;
     }
 
-    var html = filterBar + counter + '<div class="table-wrap"><table><thead><tr>' +
+    var html = repertoireTabs() + filterBar + counter + '<div class="table-wrap"><table><thead><tr>' +
       sortHeader('Música', 'title') +
       sortHeader('Cantor', 'singer') +
       sortHeader('Gênero', 'genre') +
@@ -1024,7 +1163,8 @@
         '<td><button type="button" class="song-name-link" data-action="open-song" data-id="' + escapeHtml(s.id) + '" ' +
         'title="Ver resumo da música">' +
         '<span class="song-title-text">' + escapeHtml(s.title) + '</span>' +
-        ((s.youtubeVideos || []).length ? '<span class="icon-video" title="Possui vídeos" aria-hidden="true">&#9654;</span>' : '') +
+        ((s.youtubeVideos || []).length ? '<span class="icon-video" title="Possui vídeos" aria-hidden="true">' +
+          icon('play') + '</span>' : '') +
         '</button></td>' +
         '<td>' + escapeHtml(singerName(s.singerId)) + '</td>' +
         '<td>' + (s.genre ? escapeHtml(s.genre) : '<span class="muted">—</span>') + '</td>' +
@@ -1033,6 +1173,9 @@
         '<td>' + (due ? '<span class="dot-review" title="Revisão pendente" aria-hidden="true"></span> Pendente' : '<span class="muted">Em dia</span>') + '</td>' +
         '<td class="nowrap">' + formatDateTime(s.createdAt) + '</td>' +
         '<td class="right nowrap">' +
+        '<button class="btn btn-sm" data-action="stage-song" data-id="' + escapeHtml(s.id) + '" ' +
+        'title="Abrir no modo palco" aria-label="Abrir ' + escapeHtml(s.title) + ' no modo palco">' +
+        icon('stage') + '</button> ' +
         (due ? '<button class="btn btn-sm" data-action="practice-song" data-id="' + escapeHtml(s.id) + '">Revisar</button> ' : '') +
         '<button class="btn btn-sm" data-action="ver-videos" data-id="' + escapeHtml(s.id) + '">Vídeos</button> ' +
         '<button class="btn btn-sm" data-action="edit-song" data-id="' + escapeHtml(s.id) + '">Editar</button> ' +
@@ -1041,6 +1184,120 @@
     });
     html += '</tbody></table></div>';
     container.innerHTML = html;
+  }
+
+  /* =========================== PALCO =========================== */
+  function stageSongs() {
+    return state.songs.slice().sort(function (a, b) {
+      return String(a.title).localeCompare(String(b.title), 'pt-BR', { sensitivity: 'base' });
+    });
+  }
+
+  function renderStage(container, actions) {
+    actions.innerHTML = '<button class="btn" data-action="add-song">' + icon('plus') + ' Música</button>';
+
+    var songs = stageSongs();
+    if (!songs.length) {
+      container.innerHTML = '<div class="empty"><span class="empty-mark">' + icon('stage') + '</span>' +
+        'Adicione músicas ao repertório para abrir o modo palco.</div>';
+      return;
+    }
+
+    var html = '<div class="stage-intro"><h2>Setlist</h2>' +
+      '<p class="muted">Escolha uma música para abrir a letra em tela cheia.</p></div>' +
+      '<ul class="stage-setlist">';
+    songs.forEach(function (s, i) {
+      var card = ensureCard(s);
+      var marks = (s.sections || []).filter(function (u) { return u && u.name; }).slice(0, 6);
+      html += '<li class="stage-item">' +
+        '<span class="stage-num">' + String(i + 1).padStart(2, '0') + '</span>' +
+        '<div class="stage-item-main"><strong>' + escapeHtml(s.title) + '</strong>' +
+        '<div class="stage-item-meta">' + escapeHtml(singerName(s.singerId)) +
+        (s.key ? ' · ' + escapeHtml(s.key) : '') +
+        (marks.length ? ' · ' + marks.map(function (u) { return markLetter((s.sections || []).indexOf(u)); }).join(' ') : '') +
+        '</div></div>' +
+        '<span class="stage-item-mastery">' + SRS.mastery(card) + '%</span>' +
+        '<button class="btn btn-sm" data-action="stage-song" data-id="' + escapeHtml(s.id) + '">' +
+        icon('play') + ' Abrir</button>' +
+        '</li>';
+    });
+    html += '</ul><p class="small muted">Atalhos: <kbd>←</kbd> <kbd>→</kbd> trocam de música, ' +
+      '<kbd>Esc</kbd> sai do palco.</p>';
+    container.innerHTML = html;
+  }
+
+  function closeStage() {
+    stageState.open = false;
+    stageState.songId = null;
+    var overlay = $('#stageMode');
+    if (overlay) { overlay.hidden = true; overlay.innerHTML = ''; }
+    document.body.classList.remove('stage-open');
+    render();
+  }
+
+  function renderStageMode() {
+    var overlay = $('#stageMode');
+    if (!overlay) return;
+    var songs = stageSongs();
+    var index = songs.findIndex(function (s) { return s.id === stageState.songId; });
+    if (index < 0) { closeStage(); return; }
+    var song = songs[index];
+    var sections = (song.sections || []).filter(function (u) { return u && u.name; });
+
+    var marks = sections.length ? '<div class="stage-marks">' + sections.map(function (u, i) {
+      var conf = Number(u.confidence);
+      if (!isFinite(conf)) conf = 3;
+      return '<span class="stage-mark"><b>' + markLetter(i) + '</b>' + escapeHtml(u.name) +
+        ' · ' + conf + '/5</span>';
+    }).join('') + '</div>' : '';
+
+    overlay.innerHTML =
+      '<div class="stage-bar">' +
+        '<div class="stage-song"><span class="stage-index">' + String(index + 1).padStart(2, '0') + ' / ' +
+          String(songs.length).padStart(2, '0') + '</span>' +
+          '<div><strong>' + escapeHtml(song.title) + '</strong><span>' +
+          escapeHtml(singerName(song.singerId)) + (song.key ? ' · ' + escapeHtml(song.key) : '') +
+          (song.duration ? ' · ' + formatDuration(song.duration) : '') + '</span></div></div>' +
+        '<div class="stage-bar-actions">' +
+          '<button type="button" class="stage-btn" data-action="stage-font" data-delta="-1" aria-label="Diminuir letra">A−</button>' +
+          '<button type="button" class="stage-btn" data-action="stage-font" data-delta="1" aria-label="Aumentar letra">A+</button>' +
+          '<button type="button" class="stage-btn" data-action="stage-close">' + icon('close') + ' Sair</button>' +
+        '</div>' +
+      '</div>' + marks +
+      '<div class="stage-lyrics" data-size="' + stageState.font + '" tabindex="0">' +
+        (song.lyrics ? escapeHtml(song.lyrics) : '<span class="stage-empty">Sem letra cadastrada para esta música.</span>') +
+      '</div>' +
+      '<div class="stage-foot">' +
+        '<button type="button" class="stage-btn" data-action="stage-prev" aria-label="Música anterior">' +
+          icon('arrow-left') + '</button>' +
+        '<span class="stage-hint"><kbd>←</kbd> <kbd>→</kbd> trocam de música · <kbd>Esc</kbd> sai · ' +
+          '<kbd>+</kbd> <kbd>−</kbd> mudam a letra</span>' +
+        '<button type="button" class="stage-btn" data-action="stage-scroll" data-delta="1" aria-label="Rolar letra">' +
+          icon('arrow-down') + '</button>' +
+        '<button type="button" class="stage-btn" data-action="stage-next" aria-label="Próxima música">' +
+          icon('arrow-right') + '</button>' +
+      '</div>';
+    overlay.hidden = false;
+    document.body.classList.add('stage-open');
+    var lyrics = overlay.querySelector('.stage-lyrics');
+    if (lyrics) lyrics.focus({ preventScroll: true });
+  }
+
+  function openStage(songId) {
+    stageState.open = true;
+    stageState.songId = songId;
+    stageState.font = 2;
+    renderStageMode();
+  }
+
+  function stageStep(delta) {
+    var songs = stageSongs();
+    if (!songs.length) return;
+    var index = songs.findIndex(function (s) { return s.id === stageState.songId; });
+    if (index < 0) index = 0;
+    var next = songs[(index + delta + songs.length) % songs.length];
+    stageState.songId = next.id;
+    renderStageMode();
   }
 
   /** Tela de resumo da música, com mini player dos vídeos anexados. */
@@ -1067,7 +1324,7 @@
       '<div class="summary-top-main">' +
       (cover
         ? '<img class="summary-cover" src="' + escapeHtml(cover) + '" alt="" loading="lazy">'
-        : '<span class="summary-cover summary-cover-placeholder" aria-hidden="true">&#9834;</span>') +
+        : '<span class="summary-cover summary-cover-placeholder" aria-hidden="true">' + icon('music') + '</span>') +
       '<div><h1 class="summary-title">' + escapeHtml(song.title) + '</h1>' +
       '<p class="view-subtitle">' + escapeHtml(singerName(song.singerId)) +
       ' · Adicionada em ' + formatDateTime(song.createdAt) + '</p></div></div>' +
@@ -1629,7 +1886,7 @@
       '<div class="callout"><strong>Busca automática:</strong> ao salvar a música, geramos um link de pesquisa com o título ' +
       'e o cantor. Abra-o para encontrar interpretações e aulas dessa música no YouTube.</div>' +
       '<div style="margin-bottom:18px"><a class="btn btn-primary" href="' + escapeHtml(safeUrl(videoSearchUrl(song))) +
-      '" target="_blank" rel="noopener noreferrer">&#128269; Buscar no YouTube</a></div>' +
+      '" target="_blank" rel="noopener noreferrer">' + icon('search') + ' Buscar no YouTube</a></div>' +
       '<h3 style="font-size:15px;margin:0 0 10px">Vídeos vinculados (' + vids.length + ')</h3>';
     if (vids.length) {
       body += '<div class="video-list">' + vids.map(function (v) {
@@ -1761,11 +2018,11 @@
   function renderResultStep(container, actions) {
     var r = practice.result;
     actions.innerHTML = '<button class="btn btn-primary" data-action="practice-again">Praticar outra</button>';
-    var emoji = r.avg >= 4 ? '&#127881;' : r.avg >= 3 ? '&#128170;' : '&#128161;';
+    var resultIcon = r.avg >= 4 ? 'spark' : r.avg >= 3 ? 'check' : 'practice';
     var msg = r.avg >= 4 ? 'Excelente! A memória foi consolidada.' : r.avg >= 3 ? 'Bom trabalho! Continue assim.' : 'Tudo bem — revisões mais cedo aceleram a fixação.';
 
     var html = '<div class="practice-setup"><div class="panel big-result">' +
-      '<div class="emoji">' + emoji + '</div><h2>' + msg + '</h2>' +
+      '<div class="result-mark">' + icon(resultIcon) + '</div><h2>' + msg + '</h2>' +
       '<p class="muted">Nota média desta sessão: <strong>' + r.avg.toFixed(1) + ' / 5</strong></p>' +
       '</div>';
 
@@ -1911,8 +2168,8 @@
       '<p class="muted">Seus dados ficam armazenados neste navegador (localStorage). Exporte um backup em JSON para não perdê-los ou para migrar de dispositivo.</p>' +
       '<p class="small muted">A importação valida e sanitiza o arquivo antes de substituir os dados atuais. Faça um backup sempre que possível.</p>' +
       '<div style="display:flex;gap:10px;flex-wrap:wrap">' +
-      '<button class="btn btn-primary" data-action="export-data">&#8681; Exportar JSON</button>' +
-      '<button class="btn btn-ghost" data-action="import-data">&#8679; Importar JSON</button>' +
+      '<button class="btn btn-primary" data-action="export-data">' + icon('download') + ' Exportar JSON</button>' +
+      '<button class="btn btn-ghost" data-action="import-data">' + icon('upload') + ' Importar JSON</button>' +
       '<input type="file" id="importFile" accept="application/json,.json" hidden>' +
       '</div></div>';
 
@@ -1987,6 +2244,113 @@
     });
   }
 
+  /* =========================== PALETA DE COMANDOS =========================== */
+  function paletteCommands() {
+    var cmds = [
+      { group: 'Ir para', icon: 'home', label: 'Hoje', hint: 'visão geral', run: function () { navigate('dashboard'); } },
+      { group: 'Ir para', icon: 'library', label: 'Repertório', hint: 'músicas e cantores', run: function () { navigate('songs'); } },
+      { group: 'Ir para', icon: 'stage', label: 'Palco', hint: 'modo apresentação', run: function () { navigate('stage'); } },
+      { group: 'Ir para', icon: 'practice', label: 'Ensaios', hint: 'revisões espaçadas', run: function () { navigate('practice'); } },
+      { group: 'Ir para', icon: 'settings', label: 'Ajustes', hint: 'backup e dados', run: function () { navigate('data'); } },
+      { group: 'Ações', icon: 'plus', label: 'Nova música', hint: 'cadastrar', run: function () { songModal(null); } },
+      { group: 'Ações', icon: 'users', label: 'Novo cantor', hint: 'cadastrar', run: function () { singerModal(null); } },
+      { group: 'Ações', icon: 'moon', label: 'Alternar tema claro/noturno', hint: 'aparência', run: function () {
+        applyTheme(document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark', true);
+      } },
+      { group: 'Ações', icon: 'refresh', label: 'Exportar backup JSON', hint: 'dados', run: exportData }
+    ];
+    state.songs.forEach(function (song) {
+      cmds.push({
+        group: 'Músicas', icon: 'music', label: song.title,
+        hint: singerName(song.singerId) + (song.key ? ' · ' + song.key : ''),
+        run: function () { currentSongId = song.id; currentVideoId = null; navigate('song'); }
+      });
+    });
+    state.singers.forEach(function (sg) {
+      cmds.push({
+        group: 'Cantores', icon: 'users', label: sg.name,
+        hint: 'ver músicas',
+        run: function () {
+          songFilters.singer = sg.id; songFilters.genre = ''; songFilters.dueOnly = false;
+          searchTerm = ''; repertoireTab = 'songs'; navigate('songs');
+        }
+      });
+    });
+    return cmds;
+  }
+
+  function paletteResults(query) {
+    var all = paletteCommands();
+    var q = norm(query || '').trim();
+    if (!q) return all.slice(0, 14);
+    return all.filter(function (item) {
+      return norm(item.label + ' ' + item.hint + ' ' + item.group).indexOf(q) !== -1;
+    }).slice(0, 20);
+  }
+
+  function renderPalette() {
+    var list = $('#paletteList');
+    if (!list) return;
+    var results = paletteResults($('#paletteInput') ? $('#paletteInput').value : '');
+    paletteState.items = results;
+    if (paletteState.index >= results.length) paletteState.index = Math.max(0, results.length - 1);
+    if (!results.length) {
+      list.innerHTML = '<li class="palette-empty">Nada encontrado para essa busca.</li>';
+      return;
+    }
+    var lastGroup = null;
+    list.innerHTML = results.map(function (item, i) {
+      var group = item.group !== lastGroup ? '<li class="palette-group" role="presentation">' + escapeHtml(item.group) + '</li>' : '';
+      lastGroup = item.group;
+      return group + '<li class="palette-item" role="option" id="paletteOpt' + i + '" data-index="' + i + '" ' +
+        'aria-selected="' + (i === paletteState.index) + '">' +
+        icon(item.icon) + '<span class="palette-label">' + escapeHtml(item.label) + '</span>' +
+        '<span class="palette-hint">' + escapeHtml(item.hint) + '</span></li>';
+    }).join('');
+    var input = $('#paletteInput');
+    if (input) input.setAttribute('aria-activedescendant', 'paletteOpt' + paletteState.index);
+  }
+
+  function openPalette() {
+    var overlay = $('#paletteOverlay');
+    if (!overlay) return;
+    paletteState.open = true;
+    paletteState.index = 0;
+    paletteState.previousFocus = document.activeElement;
+    overlay.hidden = false;
+    document.body.classList.add('palette-open');
+    var input = $('#paletteInput');
+    if (input) { input.value = ''; input.focus(); }
+    renderPalette();
+  }
+
+  function closePalette() {
+    var overlay = $('#paletteOverlay');
+    if (!overlay || !paletteState.open) return;
+    paletteState.open = false;
+    overlay.hidden = true;
+    document.body.classList.remove('palette-open');
+    if (paletteState.previousFocus && paletteState.previousFocus.focus) {
+      try { paletteState.previousFocus.focus(); } catch (e) { /* ignore */ }
+    }
+  }
+
+  function runPaletteItem(index) {
+    var item = paletteState.items[index];
+    if (!item) return;
+    closePalette();
+    item.run();
+  }
+
+  function movePalette(delta) {
+    if (!paletteState.items.length) return;
+    var len = paletteState.items.length;
+    paletteState.index = (paletteState.index + delta + len) % len;
+    renderPalette();
+    var active = $('#paletteOpt' + paletteState.index);
+    if (active && active.scrollIntoView) active.scrollIntoView({ block: 'nearest' });
+  }
+
   /* =========================== AÇÕES =========================== */
   document.addEventListener('click', function (e) {
     // Navegação
@@ -2009,7 +2373,32 @@
       case 'toggle-theme':
         applyTheme(document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark', true);
         break;
+      case 'open-palette': openPalette(); break;
+      case 'palette-close': closePalette(); break;
+      case 'palette-run': runPaletteItem(Number(btn.dataset.index)); break;
+      case 'rep-tab':
+        repertoireTab = btn.dataset.tab === 'singers' ? 'singers' : 'songs';
+        render();
+        break;
       case 'goto-practice': navigate('practice'); break;
+      case 'goto-stage': navigate('stage'); break;
+      case 'open-settings': navigate('data'); break;
+      case 'stage-song': openStage(id); break;
+      case 'stage-close': closeStage(); break;
+      case 'stage-prev': stageStep(-1); break;
+      case 'stage-next': stageStep(1); break;
+      case 'stage-font': {
+        var delta = Number(btn.dataset.delta) || 0;
+        stageState.font = Math.max(1, Math.min(3, stageState.font + delta));
+        var lyricsBox = $('#stageMode .stage-lyrics');
+        if (lyricsBox) lyricsBox.setAttribute('data-size', String(stageState.font));
+        break;
+      }
+      case 'stage-scroll': {
+        var scrollBox = $('#stageMode .stage-lyrics');
+        if (scrollBox) scrollBox.scrollBy({ top: Number(btn.dataset.delta || 1) * scrollBox.clientHeight * 0.65, behavior: 'smooth' });
+        break;
+      }
       case 'open-method': navigate('method'); break;
       case 'open-song':
         currentSongId = id;
@@ -2159,6 +2548,23 @@
   $('#modalOverlay').addEventListener('click', function (e) {
     if (e.target === $('#modalOverlay')) closeModal();
   });
+
+  // Paleta de comandos: clique no fundo, nos itens e digitação
+  var paletteOverlay = $('#paletteOverlay');
+  if (paletteOverlay) {
+    paletteOverlay.addEventListener('click', function (e) {
+      if (e.target === paletteOverlay) closePalette();
+      var item = e.target.closest('.palette-item');
+      if (item) runPaletteItem(Number(item.dataset.index));
+    });
+  }
+  var paletteInput = $('#paletteInput');
+  if (paletteInput) {
+    paletteInput.addEventListener('input', function () {
+      paletteState.index = 0;
+      renderPalette();
+    });
+  }
   // Se o embed falhar (ex.: erro 153), troca o player por um poster com link direto.
   window.addEventListener('message', function (e) {
     if (!currentVideoId || !YouTube.isYoutubeOrigin(e.origin)) return;
@@ -2173,6 +2579,38 @@
   });
 
   document.addEventListener('keydown', function (e) {
+    if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
+      e.preventDefault();
+      if (paletteState.open) closePalette(); else openPalette();
+      return;
+    }
+
+    if (paletteState.open) {
+      if (e.key === 'Escape') { e.preventDefault(); closePalette(); }
+      else if (e.key === 'ArrowDown') { e.preventDefault(); movePalette(1); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); movePalette(-1); }
+      else if (e.key === 'Enter') { e.preventDefault(); runPaletteItem(paletteState.index); }
+      return;
+    }
+
+    if (stageState.open) {
+      if (e.key === 'Escape') { e.preventDefault(); closeStage(); }
+      else if (e.key === 'ArrowLeft') { e.preventDefault(); stageStep(-1); }
+      else if (e.key === 'ArrowRight') { e.preventDefault(); stageStep(1); }
+      else if (e.key === '+' || e.key === '=') {
+        e.preventDefault();
+        stageState.font = Math.min(3, stageState.font + 1);
+        var lb = $('#stageMode .stage-lyrics');
+        if (lb) lb.setAttribute('data-size', String(stageState.font));
+      } else if (e.key === '-') {
+        e.preventDefault();
+        stageState.font = Math.max(1, stageState.font - 1);
+        var lb2 = $('#stageMode .stage-lyrics');
+        if (lb2) lb2.setAttribute('data-size', String(stageState.font));
+      }
+      return;
+    }
+
     trapModalFocus(e);
     if (e.key === 'Escape' && !$('#modalOverlay').hidden) {
       e.preventDefault();

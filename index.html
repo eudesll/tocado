@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="description" content="Repertório musical local-first: organize músicas, cantores, tons, letras, vídeos e revisões espaçadas.">
-  <meta name="theme-color" content="#2f6f5e">
+  <meta name="theme-color" content="#efe9db">
   <title>Repertório — Suas músicas</title>
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
   <link rel="manifest" href="manifest.webmanifest">
@@ -22,33 +22,88 @@
   </script>
 </head>
 <body>
+  <!-- ===================== ÍCONES ===================== -->
+  <svg class="icon-sprite" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg">
+    <symbol id="i-music" viewBox="0 0 24 24"><path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/></symbol>
+    <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></symbol>
+    <symbol id="i-library" viewBox="0 0 24 24"><path d="M4 5h11M4 12h11M4 19h8"/><path d="M19 4.5v15"/></symbol>
+    <symbol id="i-stage" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3M8 21h8"/></symbol>
+    <symbol id="i-practice" viewBox="0 0 24 24"><path d="M17 2l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.5v2.4M12 19.1v2.4M2.5 12h2.4M19.1 12h2.4M5.2 5.2l1.7 1.7M17.1 17.1l1.7 1.7M5.2 18.8l1.7-1.7M17.1 6.9l1.7-1.7"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/></symbol>
+    <symbol id="i-command" viewBox="0 0 24 24"><path d="M9 6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3z"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20.5 14.2A8.6 8.6 0 1 1 9.8 3.5a7 7 0 0 0 10.7 10.7z"/></symbol>
+    <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.4v2.1M12 19.5v2.1M4.6 4.6l1.5 1.5M17.9 17.9l1.5 1.5M2.4 12h2.1M19.5 12h2.1M4.6 19.4l1.5-1.5M17.9 6.1l1.5-1.5"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.5l11 6.5-11 6.5z"/></symbol>
+    <symbol id="i-pause" viewBox="0 0 24 24"><path d="M9 5v14M15 5v14"/></symbol>
+    <symbol id="i-video" viewBox="0 0 24 24"><rect x="3" y="6" width="13" height="12" rx="2"/><path d="m16 10 5-3v10l-5-3"/></symbol>
+    <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 20a5.5 5.5 0 0 1 11 0"/><path d="M16 5.2a3.2 3.2 0 0 1 0 5.6M17.5 14.4A5.5 5.5 0 0 1 20.5 20"/></symbol>
+    <symbol id="i-arrow-left" viewBox="0 0 24 24"><path d="M19 12H5M11 6l-6 6 6 6"/></symbol>
+    <symbol id="i-arrow-down" viewBox="0 0 24 24"><path d="M12 5v14M6 13l6 6 6-6"/></symbol>
+    <symbol id="i-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M4 12.5l5 5L20 6.5"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 3 2.5 20h19z"/><path d="M12 9v5M12 17.4v.6"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 14h10l1-14"/></symbol>
+    <symbol id="i-edit" viewBox="0 0 24 24"><path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16z"/><path d="m14.5 5.5 4 4"/></symbol>
+    <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/><path d="M19 15.5l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7v5.5l3.5 2"/></symbol>
+    <symbol id="i-calendar" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="16" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M4 21h16"/></symbol>
+    <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 21V9M7 14l5-5 5 5M4 3h16"/></symbol>
+    <symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.7"/><path d="M20 3v5h-5"/></symbol>
+    <symbol id="i-lines" viewBox="0 0 24 24"><path d="M4 6h16M4 11h16M4 16h10M4 21h7"/></symbol>
+  </svg>
+
   <a class="skip-link" href="#viewContainer">Pular para o conteúdo</a>
   <div class="app">
     <!-- ===================== CABEÇALHO ===================== -->
     <header class="app-header">
       <div class="brand">
-        <span class="brand-mark">&#9834;</span>
+        <span class="brand-mark" aria-hidden="true"><svg class="icon"><use href="#i-music"></use></svg></span>
         <span class="brand-name">Repertório</span>
       </div>
 
       <nav class="nav" id="nav" aria-label="Navegação principal">
-        <button type="button" class="nav-item active" data-view="songs" aria-current="page">Músicas</button>
-        <button type="button" class="nav-item" data-view="singers">Cantores</button>
-        <span class="nav-divider" aria-hidden="true"></span>
-        <button type="button" class="nav-item nav-secondary" data-view="dashboard">Resumo</button>
-        <button type="button" class="nav-item nav-secondary" data-view="practice">Revisões <span class="badge" id="navDue">0</span></button>
-        <button type="button" class="nav-item nav-secondary" data-view="data">Dados</button>
+        <button type="button" class="nav-item active" data-view="dashboard" aria-current="page">
+          <svg class="icon nav-icon" aria-hidden="true"><use href="#i-home"></use></svg><span>Hoje</span>
+        </button>
+        <button type="button" class="nav-item" data-view="songs">
+          <svg class="icon nav-icon" aria-hidden="true"><use href="#i-library"></use></svg><span>Repertório</span>
+        </button>
+        <button type="button" class="nav-item" data-view="stage">
+          <svg class="icon nav-icon" aria-hidden="true"><use href="#i-stage"></use></svg><span>Palco</span>
+        </button>
+        <button type="button" class="nav-item" data-view="practice">
+          <svg class="icon nav-icon" aria-hidden="true"><use href="#i-practice"></use></svg><span>Ensaios</span>
+          <span class="badge" id="navDue">0</span>
+        </button>
       </nav>
 
-      <button type="button" class="theme-toggle" id="themeToggle" data-action="toggle-theme" title="Alternar tema claro/noturno" aria-label="Alternar tema" aria-pressed="false"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20.5 14.2A8.6 8.6 0 1 1 9.8 3.5a7 7 0 0 0 10.7 10.7z"/></svg></button>
+      <div class="header-tools">
+        <button type="button" class="tool-btn command-btn" data-action="open-palette" title="Buscar ou executar comando (Ctrl/Cmd + K)" aria-label="Buscar ou executar comando">
+          <svg class="icon" aria-hidden="true"><use href="#i-search"></use></svg>
+          <span class="tool-hint">Buscar</span>
+          <kbd class="tool-kbd">Ctrl K</kbd>
+        </button>
+        <button type="button" class="tool-btn" id="themeToggle" data-action="toggle-theme" title="Alternar tema claro/noturno" aria-label="Alternar tema" aria-pressed="false">
+          <svg class="icon" aria-hidden="true"><use href="#i-moon"></use></svg>
+        </button>
+        <button type="button" class="tool-btn" data-action="open-settings" title="Ajustes e dados" aria-label="Ajustes e dados">
+          <svg class="icon" aria-hidden="true"><use href="#i-settings"></use></svg>
+        </button>
+      </div>
     </header>
 
     <!-- ===================== CONTEÚDO ===================== -->
     <main class="main">
       <div class="page-head">
-        <div>
-          <h1 id="viewTitle">Músicas</h1>
-          <p class="view-subtitle" id="viewSubtitle">Todas as músicas do seu repertório</p>
+        <div class="page-head-text">
+          <p class="page-eyebrow" id="viewEyebrow" hidden></p>
+          <h1 id="viewTitle">Hoje</h1>
+          <p class="view-subtitle" id="viewSubtitle">O que praticar agora</p>
         </div>
         <div class="page-actions" id="topbarActions"></div>
       </div>
@@ -57,12 +112,14 @@
     </main>
   </div>
 
-  <!-- ===================== MODAL ===================== -->
+  <!-- ===================== FICHA (DRAWER) ===================== -->
   <div class="modal-overlay" id="modalOverlay" hidden>
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle" tabindex="-1">
       <div class="modal-header">
         <h2 id="modalTitle">Título</h2>
-        <button type="button" class="icon-btn" id="modalClose" data-action="modal-close" aria-label="Fechar">&times;</button>
+        <button type="button" class="icon-btn" id="modalClose" data-action="modal-close" aria-label="Fechar">
+          <svg class="icon" aria-hidden="true"><use href="#i-close"></use></svg>
+        </button>
       </div>
       <form id="modalForm">
         <div class="modal-body" id="modalBody"></div>
@@ -73,6 +130,28 @@
       </form>
     </div>
   </div>
+
+  <!-- ===================== PALETA DE COMANDOS ===================== -->
+  <div class="palette-overlay" id="paletteOverlay" hidden>
+    <div class="palette" role="dialog" aria-modal="true" aria-label="Comandos e busca">
+      <div class="palette-field">
+        <svg class="icon" aria-hidden="true"><use href="#i-search"></use></svg>
+        <input id="paletteInput" type="text" role="combobox" aria-expanded="true"
+          aria-controls="paletteList" aria-autocomplete="list" autocomplete="off" spellcheck="false"
+          placeholder="Buscar música, ir para… ou executar um comando">
+        <kbd>Esc</kbd>
+      </div>
+      <ul class="palette-list" id="paletteList" role="listbox" aria-label="Resultados"></ul>
+      <div class="palette-foot" aria-hidden="true">
+        <span><kbd>&uarr;</kbd><kbd>&darr;</kbd> navegar</span>
+        <span><kbd>Enter</kbd> abrir</span>
+        <span><kbd>Esc</kbd> fechar</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== MODO PALCO ===================== -->
+  <div class="stage-overlay" id="stageMode" role="dialog" aria-modal="true" aria-label="Modo palco" hidden></div>
 
   <div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true" hidden></div>
 
