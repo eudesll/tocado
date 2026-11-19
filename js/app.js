@@ -2271,15 +2271,18 @@
   }
 
   function renderSetupStep(container, actions) {
-    actions.innerHTML = '<button class="btn" data-action="open-method">' + icon('info') + ' Como funciona</button>';
+    actions.innerHTML =
+      '<button class="btn" data-action="goto-songs">' + icon('library') + ' Repertório</button>' +
+      '<button class="btn" data-action="open-method">' + icon('info') + ' Como funciona</button>';
 
     var due = dueSongs();
     var today = new Date().toDateString();
     var practicedToday = state.sessions.filter(function (session) {
       return new Date(session.date).toDateString() === today;
     }).length;
+    var streak = computeStreak();
 
-    var html = '<div class="practice-setup">';
+    var html = '<div class="practice-page">';
     html += '<section class="practice-summary">' +
       '<div class="practice-summary-top">' +
       '<div><p class="page-eyebrow">Sessão de ensaio</p>' +
@@ -2294,23 +2297,29 @@
       statCard('Pendentes', due.length, due.length ? 'warning' : '') +
       statCard('Ensaiadas hoje', practicedToday, practicedToday ? 'success' : '') +
       statCard('Domínio médio', avgMastery() + '%', 'primary') +
+      statCard('Sequência', streak + (streak === 1 ? ' dia' : ' dias')) +
       '</div></section>';
 
-    html += '<div class="section"><div class="section-heading-row">' +
+    html += '<div class="practice-columns">';
+    html += '<div class="practice-col-main">';
+
+    /* ------------------ Revisões pendentes ------------------ */
+    html += '<section class="panel practice-section"><div class="section-heading-row">' +
       '<h2 class="section-title">Revisões pendentes (' + due.length + ')</h2>' +
-      tip('Uma revisão fica pendente quando o intervalo do cartão SM-2 vence. Quanto antes você avaliar, mais confiável fica o agendamento.') +
+      tip('Uma revisão fica pendente quando o intervalo do cartão SM-2 vence. ' +
+        'Quanto antes você avaliar, mais confiável fica o agendamento.') +
       '</div>';
     if (!due.length) {
       html += '<div class="empty"><span class="empty-mark">' + icon('check') + '</span>' +
-        'Nenhuma revisão pendente. Use a busca abaixo para praticar qualquer música.</div>';
+        'Nenhuma revisão pendente. Use a busca ao lado para praticar qualquer música.</div>';
     } else {
       html += '<div class="song-picker">';
       due.forEach(function (s) {
         var card = ensureCard(s);
         var units = (s.sections || []).filter(function (u) { return u && u.name; }).length;
-        html += '<div class="pick-row">' + avatarHtml(getSinger(s.singerId), 36) +
+        html += '<div class="pick-row">' + avatarHtml(getSinger(s.singerId), 40) +
           '<div class="pick-info"><strong>' + escapeHtml(s.title) + '</strong>' +
-          '<small>' + escapeHtml(singerName(s.singerId)) + ' · ' + dueLabel(card) +
+          '<small>' + escapeHtml(singerName(s.singerId)) + ' · ' + escapeHtml(dueLabel(card)) +
           (s.key ? ' · Tom ' + escapeHtml(s.key) : '') +
           (units ? ' · ' + units + (units === 1 ? ' trecho' : ' trechos') : '') + '</small></div>' +
           '<button class="btn btn-primary btn-sm" data-action="practice-song" data-id="' + escapeHtml(s.id) + '">' +
@@ -2318,7 +2327,43 @@
       });
       html += '</div>';
     }
+    html += '</section>';
+
+    /* ------------------ Atividade recente ------------------ */
+    html += '<section class="panel practice-section"><div class="section-heading-row">' +
+      '<h2 class="section-title">Atividade recente</h2>' +
+      tip('Cada quadrado é um dia com ensaio registrado. A sequência aparece no resumo acima.') +
+      '</div>' + activityCalendar(allActivityEvents(), 26) + '</section>';
+
     html += '</div>';
+
+    /* ------------------ Coluna lateral ------------------ */
+    html += '<aside class="practice-col-side">';
+
+    var next = due[0] || (state.songs.length ? state.songs[0] : null);
+    html += '<section class="panel practice-next">';
+    if (next) {
+      var nextCard = ensureCard(next);
+      html += '<div class="section-heading-row"><h3>' +
+        (due.length ? 'Próximo ensaio' : 'Sugestão de ensaio') + '</h3>' +
+        tip('Esta é a música mais antiga entre as revisões pendentes.') + '</div>' +
+        '<p class="next-title">' + escapeHtml(next.title) + '</p>' +
+        '<p class="small muted">' + escapeHtml(singerName(next.singerId)) +
+        (next.key ? ' · ' + escapeHtml(next.key) : '') + '</p>' +
+        '<div class="rate-progress"><div class="rate-progress-top"><span>Domínio</span><strong>' +
+        SRS.mastery(nextCard) + '%</strong></div>' +
+        '<div class="readiness"><span style="width:' + Math.max(4, SRS.mastery(nextCard)) + '%"></span></div></div>' +
+        '<div class="quick-actions">' +
+        '<button class="btn btn-primary btn-sm" data-action="practice-song" data-id="' + escapeHtml(next.id) + '">' +
+        icon('play') + ' Começar ensaio</button>' +
+        '<button class="btn btn-sm" data-action="open-song" data-id="' + escapeHtml(next.id) + '">' +
+        icon('music') + ' Ver ficha</button>' +
+        '</div>';
+    } else {
+      html += '<h3>Próximo ensaio</h3><p class="small muted">Cadastre uma música para começar.</p>' +
+        '<button class="btn btn-primary btn-sm" data-action="add-song">' + icon('plus') + ' Nova música</button>';
+    }
+    html += '</section>';
 
     var query = norm(practiceSearchTerm).trim();
     var others = state.songs.filter(function (s) {
@@ -2328,8 +2373,8 @@
       return String(a.title).localeCompare(String(b.title), 'pt-BR', { sensitivity: 'base' });
     });
 
-    html += '<div class="section"><div class="section-heading-row">' +
-      '<h2 class="section-title">Praticar outra música</h2>' +
+    html += '<section class="panel practice-side-picker"><div class="section-heading-row">' +
+      '<h3>Praticar outra música</h3>' +
       tip('Ensaios extras não substituem as revisões: eles apenas atualizam o cartão da música escolhida.') +
       '</div>' +
       '<div class="filters practice-filters">' +
@@ -2347,16 +2392,21 @@
       html += '<div class="song-picker">';
       others.forEach(function (s) {
         var card = ensureCard(s);
-        html += '<div class="pick-row">' + avatarHtml(getSinger(s.singerId), 36) +
+        html += '<div class="pick-row">' + avatarHtml(getSinger(s.singerId), 32) +
           '<div class="pick-info"><strong>' + escapeHtml(s.title) + '</strong>' +
-          '<small>' + escapeHtml(singerName(s.singerId)) + ' · Domínio ' + SRS.mastery(card) + '% · ' +
-          'Próxima: ' + formatDay(card.due) + '</small></div>' +
+          '<small>' + escapeHtml(singerName(s.singerId)) + ' · ' + SRS.mastery(card) + '%</small></div>' +
           '<button class="btn btn-sm" data-action="practice-song" data-id="' + escapeHtml(s.id) + '">' +
           icon('play') + ' Praticar</button></div>';
       });
       html += '</div>';
     }
-    html += '</div></div>';
+    html += '</section>';
+
+    html += '<section class="panel"><h3>Dica de ensaio</h3>' +
+      '<p class="small">Cante cada trecho sem consultar a letra e avalie com honestidade. ' +
+      'A nota define o intervalo da próxima revisão e destaca os trechos fracos.</p></section>';
+
+    html += '</aside></div></div>';
 
     container.innerHTML = html;
   }
