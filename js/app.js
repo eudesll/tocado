@@ -2134,6 +2134,16 @@
       html += '</div></div>';
     });
 
+    // A letra fica recolhida para não virar consulta durante o teste de recuperação.
+    html += '<details class="practice-lyrics"><summary>' + icon('lines') +
+      ' Consultar letra' + (song.lyrics ? '' : ' (não cadastrada)') + '</summary>' +
+      '<div class="panel">' +
+      (song.lyrics
+        ? '<pre class="lyrics-text">' + escapeHtml(song.lyrics) + '</pre>' +
+          (song.lyricsSource ? '<p class="small muted">Fonte: ' + escapeHtml(song.lyricsSource) + '</p>' : '')
+        : '<p class="small muted">Letra não disponível. Use Editar na ficha da música para colar a letra.</p>') +
+      '</div></details>';
+
     html += '<div class="practice-actions">' +
       '<button class="btn btn-primary" data-action="finish-practice">' + icon('check') + ' Concluir prática</button>' +
       '<button class="btn btn-ghost" data-action="practice-cancel">Cancelar</button></div>';

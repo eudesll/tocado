@@ -1471,6 +1471,25 @@ tbody tr:hover { background: color-mix(in srgb, var(--accent-soft) 55%, transpar
   background: var(--danger-soft); border-color: var(--danger); color: var(--danger);
 }
 
+/* ---------- Letra recolhida no ensaio ---------- */
+.practice-lyrics { margin: 18px 0 2px; }
+.practice-lyrics summary {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 5px 0; cursor: pointer; list-style: none;
+  color: var(--muted); font-size: 13px;
+}
+.practice-lyrics summary::-webkit-details-marker { display: none; }
+.practice-lyrics summary:hover { color: var(--text); }
+.practice-lyrics summary .icon { width: 15px; height: 15px; }
+.practice-lyrics summary::after {
+  content: ""; width: 6px; height: 6px; margin-left: 2px;
+  border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor;
+  transform: rotate(45deg) translateY(-2px); transition: transform .15s;
+}
+.practice-lyrics[open] summary::after { transform: rotate(225deg) translateY(-2px); }
+.practice-lyrics .panel { margin-top: 8px; }
+.practice-lyrics .lyrics-text { margin: 0 0 10px; }
+
 /* ---------- Ficha da música no padrão do ensaio ---------- */
 .summary-head-top { display: flex; align-items: center; gap: 16px; }
 .summary-head-text { flex: 1; min-width: 0; }
