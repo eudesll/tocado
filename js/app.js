@@ -26,6 +26,7 @@
   var stageState = { open: false, songIds: [], songId: null, setName: '', font: 2 };
   var activeSetlistId = null;
   var setlistSearchTerm = '';
+  var setlistDrag = { songId: null, source: null };
 
   // Estado transitório da foto no formulário de cantor
   var photoDraft = null;
@@ -1379,15 +1380,17 @@
       html += '<div class="section-heading-row summary-section-heading">' +
         '<h2 class="section-title">Músicas (' + songs.length + ')</h2>' +
         tip('O número de ordem e a nota de domínio ajudam a equilibrar o setlist.') + '</div>';
+      html += '<div class="setlist-dropzone" data-drop-setlist="' + escapeHtml(active.id) + '">';
       if (!songs.length) {
         html += '<div class="empty"><span class="empty-mark">' + icon('music') + '</span>' +
-          'Setlist vazio. Adicione músicas do repertório abaixo.</div>';
+          'Setlist vazio. Arraste músicas da lista abaixo para cá.</div>';
       } else {
         html += '<ul class="stage-setlist">';
         songs.forEach(function (s, i) {
           var card = ensureCard(s);
           var sections = (s.sections || []).filter(function (u) { return u && u.name; }).slice(0, 6);
-          html += '<li class="stage-item">' +
+          html += '<li class="stage-item" draggable="true" data-drag-song="' + escapeHtml(s.id) + '" ' +
+            'title="Arraste para reordenar">' +
             '<span class="stage-num">' + String(i + 1).padStart(2, '0') + '</span>' +
             '<div class="stage-item-main"><strong>' + escapeHtml(s.title) + '</strong>' +
             '<div class="stage-item-meta">' + escapeHtml(singerName(s.singerId)) +
@@ -1408,6 +1411,7 @@
         });
         html += '</ul>';
       }
+      html += '</div>';
 
       var query = norm(setlistSearchTerm).trim();
       var available = state.songs.filter(function (s) {
@@ -1418,9 +1422,11 @@
         return String(a.title).localeCompare(String(b.title), 'pt-BR', { sensitivity: 'base' });
       });
 
-      html += '<div class="section-heading-row summary-section-heading">' +
+      html += '<div class="setlist-available" data-drop-available="' + escapeHtml(active.id) + '">' +
+        '<div class="section-heading-row summary-section-heading">' +
         '<h2 class="section-title">Adicionar músicas</h2>' +
-        tip('As músicas já cadastradas no repertório aparecem aqui; o setlist apenas define a ordem de execução.') +
+        tip('Arraste uma música para o setlist para adicioná-la; arraste de volta para cá para removê-la. ' +
+          'Dentro do setlist, arraste para reordenar.') +
         '</div>' +
         '<div class="filters setlist-filters">' +
         '<input id="setlistSearch" class="search" aria-label="Buscar música para adicionar" ' +
@@ -1432,7 +1438,8 @@
       } else {
         html += '<div class="song-picker">';
         available.forEach(function (s) {
-          html += '<div class="pick-row">' + avatarHtml(getSinger(s.singerId), 36) +
+          html += '<div class="pick-row setlist-pick" draggable="true" data-drag-song="' +
+            escapeHtml(s.id) + '" title="Arraste para adicionar ao setlist">' + avatarHtml(getSinger(s.singerId), 36) +
             '<div class="pick-info"><strong>' + escapeHtml(s.title) + '</strong>' +
             '<small>' + escapeHtml(singerName(s.singerId)) +
             (s.key ? ' · ' + escapeHtml(s.key) : '') + '</small></div>' +
@@ -1441,9 +1448,33 @@
         });
         html += '</div>';
       }
+      html += '</div>';
     }
     html += '</div></div>';
     container.innerHTML = html;
+  }
+
+  function clearSetlistDropHints() {
+    document.querySelectorAll('.drop-before, .drop-after, .drop-active').forEach(function (el) {
+      el.classList.remove('drop-before', 'drop-after', 'drop-active');
+    });
+  }
+
+  function clearSetlistDrag() {
+    document.querySelectorAll('.dragging').forEach(function (el) { el.classList.remove('dragging'); });
+    clearSetlistDropHints();
+    setlistDrag = { songId: null, source: null };
+  }
+
+  // Índice de inserção entre os itens que não estão sendo arrastados.
+  function setlistDropIndex(zone, clientY) {
+    var items = Array.prototype.slice.call(zone.querySelectorAll('.stage-item'))
+      .filter(function (el) { return !el.classList.contains('dragging'); });
+    for (var i = 0; i < items.length; i++) {
+      var rect = items[i].getBoundingClientRect();
+      if (clientY < rect.top + rect.height / 2) return i;
+    }
+    return items.length;
   }
 
   function openStage(songId, songIds, setName) {
@@ -3032,6 +3063,69 @@
       if (setlistField) { setlistField.focus(); setlistField.setSelectionRange(posSetlist, posSetlist); }
     }
   });
+
+  // Arrastar e soltar nos setlists (HTML5 DnD, sem dependências).
+  document.addEventListener('dragstart', function (e) {
+    if (currentView !== 'stage' || !e.target || !e.target.closest) return;
+    var row = e.target.closest('[data-drag-song]');
+    if (!row || !row.dataset.dragSong) return;
+    setlistDrag = {
+      songId: row.dataset.dragSong,
+      source: row.classList.contains('setlist-pick') ? 'available' : 'setlist'
+    };
+    if (e.dataTransfer) {
+      e.dataTransfer.effectAllowed = 'move';
+      try { e.dataTransfer.setData('text/plain', setlistDrag.songId); } catch (err) { /* ignore */ }
+    }
+    setTimeout(function () { row.classList.add('dragging'); }, 0);
+  });
+
+  document.addEventListener('dragover', function (e) {
+    if (currentView !== 'stage' || !setlistDrag.songId || !e.target || !e.target.closest) return;
+    var zone = e.target.closest('[data-drop-setlist], [data-drop-available]');
+    if (!zone || !getSetlist(activeSetlistId)) return;
+    if (zone.hasAttribute('data-drop-available') && setlistDrag.source !== 'setlist') return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+    clearSetlistDropHints();
+
+    if (zone.hasAttribute('data-drop-available')) {
+      zone.classList.add('drop-active');
+      return;
+    }
+    var index = setlistDropIndex(zone, e.clientY);
+    var items = Array.prototype.slice.call(zone.querySelectorAll('.stage-item:not(.dragging)'));
+    if (index < items.length) items[index].classList.add('drop-before');
+    else if (items.length) items[items.length - 1].classList.add('drop-after');
+    else zone.classList.add('drop-active');
+  });
+
+  document.addEventListener('drop', function (e) {
+    if (currentView !== 'stage' || !e.target || !e.target.closest) return;
+    var zone = e.target.closest('[data-drop-setlist], [data-drop-available]');
+    if (!zone) return;
+    e.preventDefault();
+    var setlist = getSetlist(activeSetlistId);
+    if (!setlist) return;
+    var songId = setlistDrag.songId;
+    if (!songId && e.dataTransfer) {
+      try { songId = e.dataTransfer.getData('text/plain'); } catch (err) { /* ignore */ }
+    }
+    if (!songId || !getSong(songId)) { clearSetlistDrag(); return; }
+
+    if (zone.hasAttribute('data-drop-setlist')) {
+      var ids = (setlist.songIds || []).filter(function (id) { return id !== songId; });
+      var index = setlistDropIndex(zone, e.clientY);
+      ids.splice(Math.max(0, Math.min(index, ids.length)), 0, songId);
+      setlist.songIds = ids;
+    } else if (setlistDrag.source === 'setlist') {
+      setlist.songIds = (setlist.songIds || []).filter(function (id) { return id !== songId; });
+    }
+    clearSetlistDrag();
+    save(); render();
+  });
+
+  document.addEventListener('dragend', clearSetlistDrag);
 
   // Fechar modal clicando fora / ESC
   $('#modalOverlay').addEventListener('click', function (e) {
