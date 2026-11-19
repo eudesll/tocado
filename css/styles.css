@@ -1425,6 +1425,68 @@ tbody tr:hover { background: color-mix(in srgb, var(--accent-soft) 55%, transpar
 .cf-center-caption { fill: var(--muted); font-family: var(--font-mono); font-size: 7px; letter-spacing: .12em; text-anchor: middle; }
 .circle-panel .small { text-align: left; }
 
+/* ---------- Listagem de músicas (cartões enxutos) ---------- */
+.sort-select { display: block; }
+.song-list { display: flex; flex-direction: column; gap: 8px; }
+.song-card {
+  display: flex; align-items: center; gap: 14px;
+  padding: 11px 14px; background: var(--surface);
+  border: 1px solid var(--border); border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xs); transition: border-color .14s, box-shadow .14s;
+}
+.song-card:hover { border-color: var(--border-strong); box-shadow: var(--shadow-sm); }
+.song-card-main {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px;
+  border: 0; background: none; padding: 0; text-align: left;
+  color: inherit; cursor: pointer;
+}
+.song-card-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.song-card-text strong {
+  font-size: 14.5px; line-height: 1.3;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.song-card-main:hover .song-card-text strong { color: var(--accent); }
+.song-card-meta {
+  font-size: 12px; color: var(--muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.song-card-side { display: flex; align-items: center; gap: 14px; flex-shrink: 0; }
+.song-card-status {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-family: var(--font-mono); font-size: 11px; color: var(--muted);
+  white-space: nowrap;
+}
+.song-card-status.pending { color: var(--accent); }
+.song-card-status .icon { width: 13px; height: 13px; }
+.song-card-actions { display: flex; gap: 2px; }
+.song-card-actions .icon-btn {
+  width: 30px; height: 30px; padding: 0;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+}
+.song-card-actions .icon-btn .icon { width: 15px; height: 15px; }
+.song-card-actions .icon-btn:hover {
+  background: var(--accent-soft); border-color: var(--accent); color: var(--accent);
+}
+.song-card-actions .icon-btn.danger:hover {
+  background: var(--danger-soft); border-color: var(--danger); color: var(--danger);
+}
+
+/* ---------- Ficha da música no padrão do ensaio ---------- */
+.summary-head-top { display: flex; align-items: center; gap: 16px; }
+.summary-head-text { flex: 1; min-width: 0; }
+.summary-head .summary-title {
+  margin: 0; font-size: clamp(22px, 2.2vw, 28px);
+  letter-spacing: -.3px; line-height: 1.15;
+}
+.summary-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; }
+.summary-section-heading { margin: 20px 0 8px; }
+.summary-sections .section-review { padding: 12px 14px; margin-bottom: 8px; }
+.summary-sections .ready-bar { width: 110px; }
+.quick-actions { display: flex; flex-direction: column; gap: 7px; }
+.quick-actions .btn { width: 100%; justify-content: flex-start; }
+.summary-activity { margin-top: 16px; }
+.lyrics-panel .lyrics-text { margin: 0 0 10px; }
+
 /* ============================ Responsivo ============================ */
 @media (max-width: 900px) {
   .dashboard-grid { grid-template-columns: 1fr; }
@@ -1595,6 +1657,13 @@ tbody tr:hover { background: color-mix(in srgb, var(--accent-soft) 55%, transpar
   .rating-btn { min-width: 0; flex: 1 1 28%; padding: 7px 6px; }
   .rating-btn span { display: none; }
   .rate-all-row .small { flex: 1 1 100%; }
+}
+@media (max-width: 760px) {
+  .song-card { flex-wrap: wrap; gap: 8px; padding: 12px 14px; }
+  .song-card-side { width: 100%; justify-content: space-between; }
+  .song-card-actions { flex-wrap: wrap; }
+  .summary-head-top { align-items: flex-start; }
+  .summary-head .summary-cover { width: 56px; height: 56px; }
 }
 /* ============================ Impressão ============================ */
 @media print {

@@ -48,6 +48,13 @@
       '<use href="#i-' + name + '"></use></svg>';
   }
 
+  function iconAction(action, name, label, id, cls) {
+    return '<button type="button" class="icon-btn' + (cls ? ' ' + cls : '') + '" ' +
+      'data-action="' + action + '" data-id="' + escapeHtml(id) + '" ' +
+      'title="' + escapeHtml(label) + '" aria-label="' + escapeHtml(label) + '">' +
+      icon(name) + '</button>';
+  }
+
   function dateLabel() {
     var txt = new Date().toLocaleDateString('pt-BR', {
       weekday: 'long', day: 'numeric', month: 'long'
@@ -581,8 +588,9 @@
     var container = $('#viewContainer');
     var actions = $('#topbarActions');
     actions.innerHTML = '';
-    var pageHead = $('.page-head');
-    if (pageHead) pageHead.hidden = (currentView === 'song'); // resumo tem cabeçalho próprio
+    // Na ficha da música o título é próprio, mas as ações do topo continuam visíveis.
+    var pageText = $('.page-head-text');
+    if (pageText) pageText.hidden = (currentView === 'song');
     switch (currentView) {
       case 'dashboard': renderDashboard(container, actions); break;
       case 'singers': renderSingers(container, actions); break;
@@ -1231,159 +1239,35 @@
       return;
     }
 
-    var html = repertoireTabs() + filterBar + counter + '<div class="table-wrap"><table><thead><tr>' +
-      sortHeader('Música', 'title') +
-      sortHeader('Cantor', 'singer') +
-      sortHeader('Gênero', 'genre') +
-      sortHeader('Tom', 'key') +
-      sortHeader('Duração', 'duration') +
-      sortHeader('Revisão', 'review') +
-      sortHeader('Adicionada em', 'created') +
-      '<th style="text-align:right">Ações</th>' +
-      '</tr></thead><tbody>';
+    var html = repertoireTabs() + filterBar + counter + '<div class="song-list">';
 
     list.forEach(function (s) {
       var card = ensureCard(s);
       var due = SRS.isDue(card);
-      html += '<tr>' +
-        '<td><button type="button" class="song-name-link" data-action="open-song" data-id="' + escapeHtml(s.id) + '" ' +
-        'title="Ver resumo da música">' +
-        '<span class="song-title-text">' + escapeHtml(s.title) + '</span>' +
-        ((s.youtubeVideos || []).length ? '<span class="icon-video" title="Possui vídeos" aria-hidden="true">' +
-          icon('play') + '</span>' : '') +
-        '</button></td>' +
-        '<td>' + escapeHtml(singerName(s.singerId)) + '</td>' +
-        '<td>' + (s.genre ? escapeHtml(s.genre) : '<span class="muted">—</span>') + '</td>' +
-        '<td>' + (s.key ? '<span class="chip key" title="' + escapeHtml(s.keySource || '') + '">' + escapeHtml(s.key) + '</span>' : '<span class="muted">—</span>') + '</td>' +
-        '<td class="nowrap">' + (s.duration ? formatDuration(s.duration) : '<span class="muted">—</span>') + '</td>' +
-        '<td>' + (due ? '<span class="dot-review" title="Revisão pendente" aria-hidden="true"></span> Pendente' : '<span class="muted">Em dia</span>') + '</td>' +
-        '<td class="nowrap">' + formatDateTime(s.createdAt) + '</td>' +
-        '<td class="right nowrap">' +
-        '<button class="btn btn-sm" data-action="stage-song" data-id="' + escapeHtml(s.id) + '" ' +
-        'title="Abrir no modo palco" aria-label="Abrir ' + escapeHtml(s.title) + ' no modo palco">' +
-        icon('stage') + '</button> ' +
-        (due ? '<button class="btn btn-sm" data-action="practice-song" data-id="' + escapeHtml(s.id) + '">Revisar</button> ' : '') +
-        '<button class="btn btn-sm" data-action="ver-videos" data-id="' + escapeHtml(s.id) + '">Vídeos</button> ' +
-        '<button class="btn btn-sm" data-action="edit-song" data-id="' + escapeHtml(s.id) + '">Editar</button> ' +
-        '<button class="btn btn-sm btn-danger" data-action="delete-song" data-id="' + escapeHtml(s.id) + '">Excluir</button>' +
-        '</td></tr>';
+      var meta = [singerName(s.singerId), s.genre,
+        s.key ? 'Tom ' + s.key : '',
+        s.duration ? formatDuration(s.duration) : ''].filter(Boolean).map(escapeHtml).join(' · ');
+
+      html += '<article class="song-card">' +
+        '<button type="button" class="song-card-main" data-action="open-song" data-id="' + escapeHtml(s.id) + '" ' +
+        'aria-label="Abrir ficha de ' + escapeHtml(s.title) + '">' +
+        '<span class="song-card-avatar">' + avatarHtml(getSinger(s.singerId), 40) + '</span>' +
+        '<span class="song-card-text"><strong>' + escapeHtml(s.title) + '</strong>' +
+        '<span class="song-card-meta">' + meta + '</span></span>' +
+        '</button>' +
+        '<div class="song-card-side">' +
+        '<span class="song-card-status' + (due ? ' pending' : '') + '">' +
+        icon(due ? 'clock' : 'check') + (due ? 'Pendente' : 'Em dia') + '</span>' +
+        '<div class="song-card-actions">' +
+        iconAction('stage-song', 'stage', 'Abrir no palco', s.id) +
+        (due ? iconAction('practice-song', 'practice', 'Revisar', s.id) : '') +
+        iconAction('ver-videos', 'video', 'Vídeos', s.id) +
+        iconAction('edit-song', 'edit', 'Editar', s.id) +
+        iconAction('delete-song', 'trash', 'Excluir', s.id, 'danger') +
+        '</div></div></article>';
     });
-    html += '</tbody></table></div>';
+    html += '</div>';
     container.innerHTML = html;
-  }
-
-  /* =========================== PALCO =========================== */
-  function stageSongs() {
-    return state.songs.slice().sort(function (a, b) {
-      return String(a.title).localeCompare(String(b.title), 'pt-BR', { sensitivity: 'base' });
-    });
-  }
-
-  function renderStage(container, actions) {
-    actions.innerHTML = '<button class="btn" data-action="add-song">' + icon('plus') + ' Música</button>';
-
-    var songs = stageSongs();
-    if (!songs.length) {
-      container.innerHTML = '<div class="empty"><span class="empty-mark">' + icon('stage') + '</span>' +
-        'Adicione músicas ao repertório para abrir o modo palco.</div>';
-      return;
-    }
-
-    var html = '<div class="stage-intro"><h2>Setlist</h2>' +
-      '<p class="muted">Escolha uma música para abrir a letra em tela cheia.</p></div>' +
-      '<ul class="stage-setlist">';
-    songs.forEach(function (s, i) {
-      var card = ensureCard(s);
-      var marks = (s.sections || []).filter(function (u) { return u && u.name; }).slice(0, 6);
-      html += '<li class="stage-item">' +
-        '<span class="stage-num">' + String(i + 1).padStart(2, '0') + '</span>' +
-        '<div class="stage-item-main"><strong>' + escapeHtml(s.title) + '</strong>' +
-        '<div class="stage-item-meta">' + escapeHtml(singerName(s.singerId)) +
-        (s.key ? ' · ' + escapeHtml(s.key) : '') +
-        (marks.length ? ' · ' + marks.map(function (u) { return markLetter((s.sections || []).indexOf(u)); }).join(' ') : '') +
-        '</div></div>' +
-        '<span class="stage-item-mastery">' + SRS.mastery(card) + '%</span>' +
-        '<button class="btn btn-sm" data-action="stage-song" data-id="' + escapeHtml(s.id) + '">' +
-        icon('play') + ' Abrir</button>' +
-        '</li>';
-    });
-    html += '</ul><p class="small muted">Atalhos: <kbd>←</kbd> <kbd>→</kbd> trocam de música, ' +
-      '<kbd>Esc</kbd> sai do palco.</p>';
-    container.innerHTML = html;
-  }
-
-  function closeStage() {
-    stageState.open = false;
-    stageState.songId = null;
-    var overlay = $('#stageMode');
-    if (overlay) { overlay.hidden = true; overlay.innerHTML = ''; }
-    document.body.classList.remove('stage-open');
-    render();
-  }
-
-  function renderStageMode() {
-    var overlay = $('#stageMode');
-    if (!overlay) return;
-    var songs = stageSongs();
-    var index = songs.findIndex(function (s) { return s.id === stageState.songId; });
-    if (index < 0) { closeStage(); return; }
-    var song = songs[index];
-    var sections = (song.sections || []).filter(function (u) { return u && u.name; });
-
-    var marks = sections.length ? '<div class="stage-marks">' + sections.map(function (u, i) {
-      var conf = Number(u.confidence);
-      if (!isFinite(conf)) conf = 3;
-      return '<span class="stage-mark"><b>' + markLetter(i) + '</b>' + escapeHtml(u.name) +
-        ' · ' + conf + '/5</span>';
-    }).join('') + '</div>' : '';
-
-    overlay.innerHTML =
-      '<div class="stage-bar">' +
-        '<div class="stage-song"><span class="stage-index">' + String(index + 1).padStart(2, '0') + ' / ' +
-          String(songs.length).padStart(2, '0') + '</span>' +
-          '<div><strong>' + escapeHtml(song.title) + '</strong><span>' +
-          escapeHtml(singerName(song.singerId)) + (song.key ? ' · ' + escapeHtml(song.key) : '') +
-          (song.duration ? ' · ' + formatDuration(song.duration) : '') + '</span></div></div>' +
-        '<div class="stage-bar-actions">' +
-          '<button type="button" class="stage-btn" data-action="stage-font" data-delta="-1" aria-label="Diminuir letra">A−</button>' +
-          '<button type="button" class="stage-btn" data-action="stage-font" data-delta="1" aria-label="Aumentar letra">A+</button>' +
-          '<button type="button" class="stage-btn" data-action="stage-close">' + icon('close') + ' Sair</button>' +
-        '</div>' +
-      '</div>' + marks +
-      '<div class="stage-lyrics" data-size="' + stageState.font + '" tabindex="0">' +
-        (song.lyrics ? escapeHtml(song.lyrics) : '<span class="stage-empty">Sem letra cadastrada para esta música.</span>') +
-      '</div>' +
-      '<div class="stage-foot">' +
-        '<button type="button" class="stage-btn" data-action="stage-prev" aria-label="Música anterior">' +
-          icon('arrow-left') + '</button>' +
-        '<span class="stage-hint"><kbd>←</kbd> <kbd>→</kbd> trocam de música · <kbd>Esc</kbd> sai · ' +
-          '<kbd>+</kbd> <kbd>−</kbd> mudam a letra</span>' +
-        '<button type="button" class="stage-btn" data-action="stage-scroll" data-delta="1" aria-label="Rolar letra">' +
-          icon('arrow-down') + '</button>' +
-        '<button type="button" class="stage-btn" data-action="stage-next" aria-label="Próxima música">' +
-          icon('arrow-right') + '</button>' +
-      '</div>';
-    overlay.hidden = false;
-    document.body.classList.add('stage-open');
-    var lyrics = overlay.querySelector('.stage-lyrics');
-    if (lyrics) lyrics.focus({ preventScroll: true });
-  }
-
-  function openStage(songId) {
-    stageState.open = true;
-    stageState.songId = songId;
-    stageState.font = 2;
-    renderStageMode();
-  }
-
-  function stageStep(delta) {
-    var songs = stageSongs();
-    if (!songs.length) return;
-    var index = songs.findIndex(function (s) { return s.id === stageState.songId; });
-    if (index < 0) index = 0;
-    var next = songs[(index + delta + songs.length) % songs.length];
-    stageState.songId = next.id;
-    renderStageMode();
   }
 
   /** Tela de resumo da música, com mini player dos vídeos anexados. */
@@ -1397,57 +1281,73 @@
     var stillThere = vids.some(function (v) { return v.id === currentVideoId; });
     if (!stillThere) currentVideoId = vids.length ? vids[0].id : null;
     var card = ensureCard(song);
-    var singer = getSinger(song.singerId);
-
-    var hasVideos = vids.length > 0;
+    var mastery = SRS.mastery(card);
+    var sections = (song.sections || []).filter(function (u) { return u && u.name; });
     var cover = vids.length && vids[0].thumb ? safeUrl(vids[0].thumb) : null;
     var searching = !!(song.keyPending || song.lyricsPending);
     var needsData = !searching && (!song.key || !song.lyrics);
 
-    // Cabeçalho no mesmo padrão enxuto das outras telas.
-    var html = '<div class="song-summary">' +
-      '<div class="summary-top">' +
-      '<div class="summary-top-main">' +
+    actions.innerHTML =
+      '<button class="btn" data-action="goto-songs">' + icon('library') + ' Repertório</button>' +
+      '<button class="btn btn-primary" data-action="practice-song" data-id="' + escapeHtml(song.id) + '">' +
+      icon('practice') + ' Revisar</button>';
+
+    var html = '<div class="practice-grid summary-page">';
+
+    /* ------------------ Coluna principal ------------------ */
+    html += '<div class="practice-main">';
+
+    html += '<div class="panel practice-song-head summary-head">' +
+      '<div class="summary-head-top">' +
       (cover
-        ? '<img class="summary-cover" src="' + escapeHtml(cover) + '" alt="" loading="lazy">'
+        ? '<img class="summary-cover summary-cover-img" src="' + escapeHtml(cover) + '" alt="" loading="lazy">'
         : '<span class="summary-cover summary-cover-placeholder" aria-hidden="true">' + icon('music') + '</span>') +
-      '<div><h1 class="summary-title">' + escapeHtml(song.title) + '</h1>' +
-      '<p class="view-subtitle">' + escapeHtml(singerName(song.singerId)) +
-      ' · Adicionada em ' + formatDateTime(song.createdAt) + '</p></div></div>' +
-      '<div class="summary-actions">' +
-      '<button class="btn" data-action="goto-songs">&larr; Voltar às músicas</button>' +
-      (needsData ? '<button class="btn" data-action="enrich-song" data-id="' + escapeHtml(song.id) + '">Buscar tom/letra</button>' : '') +
-      '<button class="btn" data-action="manage-videos">Vídeos</button>' +
-      '<button class="btn btn-primary" data-action="edit-song" data-id="' + escapeHtml(song.id) + '">Editar</button>' +
+      '<div class="summary-head-text">' +
+      '<div class="section-heading-row"><h1 class="summary-title">' + escapeHtml(song.title) + '</h1>' +
+      tip('Ficha da música: trechos, letra, vídeos e agendamento das revisões.') + '</div>' +
+      '<p class="muted">' + escapeHtml(singerName(song.singerId)) +
+      (song.genre ? ' · ' + escapeHtml(song.genre) : '') +
+      (song.duration ? ' · ' + formatDuration(song.duration) : '') +
+      ' · Adicionada em ' + formatDateTime(song.createdAt) + '</p>' +
       '</div></div>' +
-      '<div class="summary-meta">' +
-      (song.genre ? '<span class="chip">' + escapeHtml(song.genre) + '</span>' : '') +
-      (song.key ? '<span class="chip key" title="' + escapeHtml(song.keySource || '') + '">' + escapeHtml(song.key) + '</span>' :
-        (song.keyPending ? '<span class="chip pending">Tom: buscando...</span>' : '')) +
-      (song.duration ? '<span class="chip">' + formatDuration(song.duration) + '</span>' : '') +
-      (song.difficulty ? '<span class="chip" title="Dificuldade">' + difficultyStars(song.difficulty) + '</span>' : '') +
+      '<div class="summary-chips">' +
+      (song.key ? '<span class="chip key" title="' + escapeHtml(song.keySource || '') + '">' +
+        escapeHtml(song.key) + '</span>' :
+        (searching ? '<span class="chip pending">Buscando tom...</span>' : '')) +
+      (song.difficulty ? '<span class="chip">' + difficultyStars(song.difficulty) + '</span>' : '') +
       '<span class="chip">' + vids.length + (vids.length === 1 ? ' vídeo' : ' vídeos') + '</span>' +
-      '<span class="chip">Domínio ' + SRS.mastery(card) + '%</span>' +
       '<span class="chip' + (SRS.isDue(card) ? ' warning' : '') + '">' +
       (SRS.isDue(card) ? 'Revisão pendente' : 'Revisão em dia') + '</span>' +
+      '</div>' +
+      '<div class="rate-progress">' +
+      '<div class="rate-progress-top"><span>Domínio estimado</span><strong>' + mastery + '%</strong></div>' +
+      '<div class="readiness' + (mastery >= 70 ? ' good' : '') + '"><span style="width:' +
+      Math.max(4, mastery) + '%"></span></div></div>' +
       '</div>';
 
-    // 1. Informações
-    html += '<div class="panel"><h3>Informações</h3>' +
-      '<p class="small muted">Adicionada em ' + formatDateTime(song.createdAt) + '</p>' +
-      '<p class="small muted">Gênero: ' + escapeHtml(song.genre || '—') + ' · Tom: ' + escapeHtml(song.key || '—') +
-      ' · Duração: ' + (song.duration ? formatDuration(song.duration) : '—') +
-      ' · Dificuldade: ' + difficultyStars(song.difficulty) + '</p>' +
-      (song.notes ? '<p class="small">' + escapeHtml(song.notes) + '</p>' : '') +
-      '<div class="callout small"><strong>Revisão:</strong> ' + escapeHtml(dueLabel(card)) +
-      ' · Domínio estimado ' + SRS.mastery(card) + '%</div></div>';
+    html += '<div class="section-heading-row summary-section-heading">' +
+      '<h2 class="section-title">Trechos (' + sections.length + ')</h2>' +
+      tip('As marcações A, B, C acompanham a sugestão de ensaio e a tela de avaliação.') + '</div>';
+    if (!sections.length) {
+      html += '<div class="empty"><span class="empty-mark">' + icon('music') + '</span>' +
+        'Nenhum trecho cadastrado. A revisão avaliará a música inteira.</div>';
+    } else {
+      html += '<div class="summary-sections">';
+      sections.forEach(function (u, i) {
+        var conf = Number(u.confidence);
+        if (!isFinite(conf)) conf = 3;
+        html += '<div class="section-review"><div class="review-heading">' +
+          '<h4><span class="unit-tag">' + markLetter(i) + '</span> ' + escapeHtml(u.name) + '</h4>' +
+          tip('Confiança anterior: ' + conf + '/5. Valores baixos indicam trechos para foco no ensaio.') +
+          '</div><div class="ready-bar">' + readinessBar(conf * 20) + '</div></div>';
+      });
+      html += '</div>';
+    }
 
-    // 2. Atividade da música (seção expansível)
-    html += '<details class="activity-details"><summary>Atividade da música</summary>' +
-      '<div class="panel">' + activityCalendar(songActivityEvents(song), 26) + '</div></details>';
-
-    // 3. Letra
-    html += '<div class="section lyrics-section"><h2 class="section-title">Letra da música</h2>' +
+    html += '<div class="section-heading-row summary-section-heading">' +
+      '<h2 class="section-title">Letra</h2>' +
+      tip('Cante sem consultar: a recuperação ativa fixa melhor a memória do que apenas reler.') + '</div>';
+    html += '<div class="panel lyrics-panel">' +
       (song.lyrics
         ? '<pre class="lyrics-text">' + escapeHtml(song.lyrics) + '</pre>' +
           (song.lyricsSource ? '<p class="small muted">Fonte: ' + escapeHtml(song.lyricsSource) + '</p>' : '')
@@ -1456,9 +1356,11 @@
             : 'Letra não disponível. Use Editar para colar a letra ou buscar novamente.') + '</div>') +
       '</div>';
 
-    // 4. Vídeos (o player só existe quando há vídeo anexado)
-    html += '<div class="section videos-section"><h2 class="section-title">Vídeos (' + vids.length + ')</h2>';
-    if (hasVideos) {
+    html += '<div class="section-heading-row summary-section-heading">' +
+      '<h2 class="section-title">Vídeos (' + vids.length + ')</h2>' +
+      tip('Vídeos de referência ficam anexados à música e podem ser abertos no palco como letra.') + '</div>';
+    html += '<div class="panel">';
+    if (hasVideosSafe(vids, currentVideoId)) {
       var currentVideo = vids.find(function (v) { return v.id === currentVideoId; }) || vids[0];
       html += '<div class="summary-grid"><div class="summary-player"><div class="mini-player">';
       if (canEmbedYoutube()) {
@@ -1483,13 +1385,67 @@
         escapeHtml(YouTube.watchUrl(currentVideoId)) + '">Abrir no YouTube &rarr;</a>' +
         '</div></div>';
     } else {
-      html += '<div class="panel"><p class="muted small">Nenhum vídeo anexado.</p>' +
-        '<a class="btn" target="_blank" rel="noopener noreferrer" href="' + escapeHtml(safeUrl(videoSearchUrl(song))) + '">Buscar no YouTube</a> ' +
-        '<button class="btn" data-action="manage-videos">Adicionar vídeo</button></div>';
+      html += '<p class="muted small">Nenhum vídeo anexado.</p>' +
+        '<a class="btn" target="_blank" rel="noopener noreferrer" href="' + escapeHtml(safeUrl(videoSearchUrl(song))) + '">' +
+        icon('search') + ' Buscar no YouTube</a> ' +
+        '<button class="btn" data-action="manage-videos">' + icon('plus') + ' Adicionar vídeo</button>';
     }
-    html += '</div></div>';
+    html += '</div>';
+
+    html += '<details class="activity-details summary-activity"><summary>Atividade da música</summary>' +
+      '<div class="panel">' + activityCalendar(songActivityEvents(song), 26) + '</div></details>';
+
+    html += '</div>';
+
+    /* ------------------ Coluna lateral ------------------ */
+    html += '<aside class="practice-side">';
+    html += '<div class="panel circle-panel">' +
+      '<div class="section-heading-row"><h3>Ciclo das quintas</h3>' +
+      tip('O tom da música e sua tonalidade relativa ficam destacados no mesmo círculo usado no ensaio.') + '</div>' +
+      circleOfFifthsSvg(song.key) +
+      '<p class="small muted">' + escapeHtml(keyCaption(song.key)) + '</p></div>';
+
+    html += '<div class="panel"><h3>Ações rápidas</h3>' +
+      '<div class="quick-actions">' +
+      '<button class="btn btn-primary btn-sm" data-action="practice-song" data-id="' + escapeHtml(song.id) + '">' +
+      icon('practice') + ' Revisar</button>' +
+      '<button class="btn btn-sm" data-action="stage-song" data-id="' + escapeHtml(song.id) + '">' +
+      icon('stage') + ' Abrir no palco</button>' +
+      '<button class="btn btn-sm" data-action="manage-videos">' + icon('video') + ' Vídeos</button>' +
+      (needsData ? '<button class="btn btn-sm" data-action="enrich-song" data-id="' + escapeHtml(song.id) + '">' +
+        icon('spark') + ' Buscar tom/letra</button>' : '') +
+      '<button class="btn btn-sm" data-action="edit-song" data-id="' + escapeHtml(song.id) + '">' +
+      icon('edit') + ' Editar</button>' +
+      '</div></div>';
+
+    html += '<div class="panel"><h3>Agendamento</h3>' +
+      '<p class="small muted">Próxima revisão: <strong>' + escapeHtml(dueLabel(card)) + '</strong></p>' +
+      '<p class="small muted">Intervalo atual: <strong>' + SRS.formatInterval(card.interval) + '</strong> · ' +
+      'Repetições: <strong>' + (card.repetitions || 0) + '</strong></p>' +
+      (song.notes ? '<p class="small">' + escapeHtml(song.notes) + '</p>' : '') +
+      '</div>';
+
+    html += '</aside></div>';
 
     container.innerHTML = html;
+
+    // Capa do YouTube pode falhar offline: substitui por um marcador musical.
+    var coverImg = container.querySelector('.summary-cover-img');
+    if (coverImg) {
+      var replaceCover = function () {
+        var placeholder = document.createElement('span');
+        placeholder.className = 'summary-cover summary-cover-placeholder';
+        placeholder.setAttribute('aria-hidden', 'true');
+        placeholder.innerHTML = icon('music');
+        if (coverImg.parentNode) coverImg.replaceWith(placeholder);
+      };
+      coverImg.addEventListener('error', replaceCover);
+      if (coverImg.complete && coverImg.naturalWidth === 0) replaceCover();
+    }
+  }
+
+  function hasVideosSafe(vids, id) {
+    return vids.length > 0 && !!id && vids.some(function (v) { return v.id === id; });
   }
 
   function songModal(existing, draft) {
@@ -2295,40 +2251,41 @@
 
   /* =========================== DADOS =========================== */
   function addDebugData() {
-    if (state.singers.some(function (s) { return /\(teste\)$/.test(s.name); })) {
+    var debugNames = ['Chico Buarque', 'Maria Bethânia', 'Djavan'];
+    if (state.singers.some(function (s) { return debugNames.indexOf(s.name) !== -1; })) {
       toast('Os dados de teste já foram adicionados.');
       return;
     }
     var now = new Date().toISOString();
-    var s1 = { id: Store.generateId('singer'), name: 'Chico Buarque (teste)', genre: 'MPB',
+    var s1 = { id: Store.generateId('singer'), name: 'Chico Buarque', genre: 'MPB',
       notes: 'Cantor e compositor brasileiro — biografia de exemplo.', photo: null, photoUrl: null,
       photoSource: null, photoMissing: true, photoUpdatedAt: now };
-    var s2 = { id: Store.generateId('singer'), name: 'Maria Bethânia (teste)', genre: 'MPB',
+    var s2 = { id: Store.generateId('singer'), name: 'Maria Bethânia', genre: 'MPB',
       notes: 'Cantora brasileira — biografia de exemplo.', photo: null, photoUrl: null,
       photoSource: null, photoMissing: true, photoUpdatedAt: now };
-    var s3 = { id: Store.generateId('singer'), name: 'Djavan (teste)', genre: 'MPB',
+    var s3 = { id: Store.generateId('singer'), name: 'Djavan', genre: 'MPB',
       notes: 'Cantor e compositor brasileiro — biografia de exemplo.', photo: null, photoUrl: null,
       photoSource: null, photoMissing: true, photoUpdatedAt: now };
 
     var video1 = { id: 'dQw4w9WgXcQ', url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
-      thumb: 'https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg', title: 'Vídeo de exemplo 1', channel: 'Canal Teste' };
+      thumb: 'https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg', title: 'Vídeo de exemplo 1', channel: 'Canal de exemplo' };
     var video2 = { id: '9bZkp7q19f0', url: 'https://www.youtube.com/watch?v=9bZkp7q19f0',
-      thumb: 'https://i.ytimg.com/vi/9bZkp7q19f0/hqdefault.jpg', title: 'Vídeo de exemplo 2', channel: 'Canal Teste' };
+      thumb: 'https://i.ytimg.com/vi/9bZkp7q19f0/hqdefault.jpg', title: 'Vídeo de exemplo 2', channel: 'Canal de exemplo' };
 
     var songs = [
-      { id: Store.generateId('song'), title: 'Construção (teste)', singerId: s1.id, genre: 'MPB',
-        key: 'Fm', keyName: 'Fá menor', keySource: 'Estimativa por áudio (teste)', duration: 6.38,
+      { id: Store.generateId('song'), title: 'Construção', singerId: s1.id, genre: 'MPB',
+        key: 'Fm', keyName: 'Fá menor', keySource: 'Estimativa por áudio', duration: 6.38,
         createdAt: '2026-11-15T14:30:00.000Z',
         lyrics: 'Amou daquela vez como se fosse a última\nBeijou sua mulher como se fosse a última\nE cada filho seu como se fosse o único.',
-        lyricsSource: 'LRCLIB (teste)', youtubeVideos: [video1, video2] },
-      { id: Store.generateId('song'), title: 'Águas de Março (teste)', singerId: s3.id, genre: 'Bossa Nova',
+        lyricsSource: 'LRCLIB', youtubeVideos: [video1, video2] },
+      { id: Store.generateId('song'), title: 'Águas de Março', singerId: s3.id, genre: 'Bossa Nova',
         key: 'F#m', keyName: 'Fá# menor', duration: 4.55, createdAt: '2026-11-12T10:15:00.000Z',
         lyrics: 'É pau, é pedra, é o fim do caminho\nÉ um resto de toco, é um pouco sozinho.',
-        lyricsSource: 'LRCLIB (teste)', youtubeVideos: [] },
-      { id: Store.generateId('song'), title: 'O Bêbado e a Equilibrista (teste)', singerId: s2.id, genre: 'MPB',
+        lyricsSource: 'LRCLIB', youtubeVideos: [] },
+      { id: Store.generateId('song'), title: 'O Bêbado e a Equilibrista', singerId: s2.id, genre: 'MPB',
         key: 'Am', keyName: 'Lá menor', duration: 4.2, createdAt: '2026-11-10T09:00:00.000Z',
         lyrics: '', lyricsSource: '', youtubeVideos: [] },
-      { id: Store.generateId('song'), title: 'Cigano (teste)', singerId: s3.id, genre: 'Popular',
+      { id: Store.generateId('song'), title: 'Cigano', singerId: s3.id, genre: 'Popular',
         key: 'Cm', keyName: 'Dó menor', duration: 4.43, createdAt: '2026-11-08T18:45:00.000Z',
         lyrics: '', lyricsSource: '', youtubeVideos: [video2] }
     ];
