@@ -5,6 +5,10 @@ simples de músicas, cantores, gêneros, tons e durações. O sistema de revisõ
 existe, mas fica em segundo plano, acessível pela aba discreta "Revisões".
 Os dados são persistidos no `localStorage` do próprio navegador.
 
+> **Site publicado:** <https://eudesll.github.io/repertorio/> — GitHub Pages servindo
+> a branch `main` (pasta raiz) diretamente, sem etapa de build. O service worker e o
+> manifesto funcionam no endereço publicado, então o app pode ser instalado como PWA.
+
 O campo de cantor no cadastro de música é um **autocomplete** (digite o nome e escolha
 uma sugestão) e o cabeçalho tem um botão para alternar entre **tema claro e noturno**.
 Sem escolha manual, o tema inicial segue a preferência do sistema (`prefers-color-scheme`),
