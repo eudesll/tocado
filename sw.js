@@ -5,7 +5,7 @@
  * ========================================================================= */
 'use strict';
 
-var CACHE_NAME = 'repertorio-shell-v1';
+var CACHE_NAME = 'repertorio-shell-v2';
 var APP_SHELL = [
   './',
   './index.html',

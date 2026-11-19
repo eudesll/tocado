@@ -95,9 +95,10 @@ python3 -m http.server 8080
 - **Listagem tabular do repertório** — tabela com Música, Cantor, Gênero, Tom, Duração,
   Revisão e Adicionada em (data/hora do cadastro), com indicador de dificuldade e chips
   de status pendente. Cabeçalhos clicáveis ordenam por qualquer coluna (clique de novo
-  inverte a ordem) e expõem `aria-sort`. Um contador mostra quantas músicas estão sendo
-  exibidas e o total. Filtros combináveis: busca por texto, cantor, gênero e
-  "só revisões pendentes".
+  inverte a ordem) e expõem `aria-sort`; em telas estreitas a mesma ordenação fica
+  disponível em um seletor. Um contador mostra quantas músicas estão sendo exibidas e o
+  total. Filtros combináveis: busca por texto, cantor, gênero e "só revisões pendentes".
+  No celular, cada linha vira um cartão com os mesmos dados e ações.
 - **Sincronização entre abas** — alterações salvas em uma aba são refletidas nas demais
   pelo evento `storage`, sem recarregar a página.
 - **Dados de teste** — o botão em **Dados → Dados de teste (debug)** adiciona 3 cantores
@@ -127,6 +128,27 @@ python3 -m http.server 8080
 - **Segurança** — todo o estado carregado ou importado passa por sanitização; IDs e URLs
   são escapados antes de entrar no HTML; apenas `http(s)` (e `data:image` para fotos) são
   aceitos em links e imagens.
+
+## Identidade visual
+
+A interface usa **tokens de design** em CSS (`:root` e `:root[data-theme="dark"]`) para
+cores, espaçamento, raios e sombras, sem framework nem build:
+
+- **Estética editorial** — papel quente no tema claro, verde profundo como cor de ação e
+  tipografia serifada nos títulos (Iowan Old Style/Palatino/Georgia, com fallback para a
+  fonte do sistema). A letra das músicas usa a mesma serifada em tamanho de leitura.
+- **Componentes consistentes** — botões (primário, secundário, fantasma e perigo), chips,
+  cartões, painéis, campos, tabela, modais e toasts compartilham os mesmos tokens e
+  estados de foco visíveis.
+- **Temas claro e escuro** — o escuro é derivado dos mesmos tokens, com contraste
+  ajustado para texto, bordas e cores semânticas (aviso, perigo, sucesso).
+- **Responsivo** — navegação com rolagem horizontal e item ativo sempre visível; tabela
+  convertida em cartões abaixo de 760 px; filtros empilhados; dashboard em coluna única;
+  modal com altura limitada à viewport.
+- **Movimento discreto** — transições curtas em botões, cartões e modais, desativadas
+  automaticamente por `prefers-reduced-motion`; há ainda um estilo de impressão.
+- **Acessibilidade preservada** — foco `:focus-visible` com contraste, alvos de toque
+  confortáveis, ícones decorativos com `aria-hidden` e textos alternativos mantidos.
 
 ## Testes
 
@@ -222,3 +244,17 @@ Esta lista existe apenas neste documento; a interface não exibe mais a seção 
 12. **Comunidade** — repertórios compartilhados, listas curadas e rankings de consistência.
 13. **Assistente com IA** — sugestão automática de trechos críticos e exercícios
     personalizados a partir do histórico.
+
+### Interface e experiência (backlog de design)
+14. **Busca global com atalho** — `Ctrl/⌘ + K` para encontrar música, cantor ou trecho
+    sem trocar de aba, com resultados agrupados e navegação por teclado.
+15. **Visualização em cartões/grade** — alternância entre tabela e grade com capa do
+    artista, útil para repertórios grandes em telas pequenas.
+16. **Arrastar para reordenar o setlist** — ordenação manual das músicas de uma sessão
+    ou apresentação, com salvamento da ordem.
+17. **Modo palco** — tela cheia com letra/cifra em fonte grande, rolagem automática
+    ajustável e controles mínimos para uso durante a apresentação.
+18. **Personalização de densidade e cor de destaque** — opções de espaçamento
+    compacto/confortável e troca da cor de acento, persistidas por usuário.
+19. **Estados de carregamento e esqueleto** — placeholders durante buscas automáticas
+    (foto, tom, letra) para reduzir a sensação de espera e evitar saltos de layout.

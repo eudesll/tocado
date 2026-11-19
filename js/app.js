@@ -71,7 +71,10 @@
     document.documentElement.setAttribute('data-theme', theme);
     var btn = $('#themeToggle');
     if (btn) {
-      btn.textContent = theme === 'dark' ? '\u2600\uFE0F' : '\uD83C\uDF19';
+      var icon = theme === 'dark'
+        ? '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.2v2.1M12 19.7v2.1M4.6 4.6l1.5 1.5M17.9 17.9l1.5 1.5M2.2 12h2.1M19.7 12h2.1M4.6 19.4l1.5-1.5M17.9 6.1l1.5-1.5"/></svg>'
+        : '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20.5 14.2A8.6 8.6 0 1 1 9.8 3.5a7 7 0 0 0 10.7 10.7z"/></svg>';
+      btn.innerHTML = icon;
       btn.title = 'Tema ' + (theme === 'dark' ? 'noturno' : 'claro') + ' — clique para alternar';
       btn.setAttribute('aria-label', 'Ativar tema ' + (theme === 'dark' ? 'claro' : 'escuro'));
       btn.setAttribute('aria-pressed', theme === 'dark' ? 'true' : 'false');
@@ -429,12 +432,21 @@
   function navigate(view) {
     if (!viewMeta[view]) return;
     currentView = view;
+    var activeNav = null;
     document.querySelectorAll('.nav-item').forEach(function (b) {
       var active = b.dataset.view === view;
       b.classList.toggle('active', active);
-      if (active) b.setAttribute('aria-current', 'page');
-      else b.removeAttribute('aria-current');
+      if (active) {
+        b.setAttribute('aria-current', 'page');
+        activeNav = b;
+      } else {
+        b.removeAttribute('aria-current');
+      }
     });
+    // Em telas estreitas a navegação rola na horizontal; mantém o item ativo visível.
+    if (activeNav && activeNav.scrollIntoView) {
+      try { activeNav.scrollIntoView({ block: 'nearest', inline: 'nearest' }); } catch (err) { /* ignore */ }
+    }
     $('#viewTitle').textContent = viewMeta[view].title;
     $('#viewSubtitle').textContent = viewMeta[view].sub;
     render();
@@ -465,6 +477,15 @@
   }
 
   /* =========================== RESUMO =========================== */
+  // Quantidade de semanas do calendário conforme o espaço disponível.
+  function dashboardWeeks() {
+    var w = window.innerWidth;
+    if (w < 400) return 16;
+    if (w < 760) return 20;
+    if (w < 1100) return 26;
+    return 52;
+  }
+
   function renderDashboard(container, actions) {
     var due = dueSongs();
     var generos = {};
@@ -481,7 +502,10 @@
       statCard('Sequência', computeStreak() + (computeStreak() === 1 ? ' dia' : ' dias')) +
       '</div>';
 
-    html += '<div class="panel"><h3>Atividade</h3>' + activityCalendar(allActivityEvents(), 16) + '</div>';
+    html += '<div class="panel"><h3>Atividade</h3>' +
+      activityCalendar(allActivityEvents(), dashboardWeeks()) + '</div>';
+
+    html += '<div class="dashboard-grid"><div class="dashboard-main">';
 
     html += '<div class="section"><h2 class="section-title">Últimas músicas adicionadas</h2>';
     if (!state.songs.length) {
@@ -502,14 +526,21 @@
           '</div></div>';
       }).join('') + '</div>';
     }
-    html += '</div>';
+    html += '</div></div>';
 
     var sessions = state.sessions.slice().sort(function (a, b) {
       return (Date.parse(b.date) || 0) - (Date.parse(a.date) || 0);
     }).slice(0, 5);
-    html += '<div class="section"><h2 class="section-title">Histórico recente de práticas</h2>';
+
+    html += '<aside class="dashboard-side">';
+
+    html += '<div class="section"><h2 class="section-title">Revisões <span class="small muted">· opcional</span></h2>' +
+      '<div class="panel"><p>' + due.length + (due.length === 1 ? ' música com revisão pendente.' : ' músicas com revisão pendente.') + '</p>' +
+      '<button class="btn btn-sm' + (due.length ? ' btn-primary' : '') + '" data-action="goto-practice">Abrir revisões</button></div></div>';
+
+    html += '<div class="section"><h2 class="section-title">Histórico recente</h2>';
     if (!sessions.length) {
-      html += '<div class="empty">Nenhuma sessão de prática registrada.</div>';
+      html += '<div class="empty">Nenhuma sessão registrada.</div>';
     } else {
       html += '<div class="session-list">' + sessions.map(function (session) {
         var title = session.songTitle || (getSong(session.songId) || {}).title || 'Música removida';
@@ -521,9 +552,7 @@
     }
     html += '</div>';
 
-    html += '<div class="section"><h2 class="section-title">Revisões <span class="small muted">· opcional</span></h2>' +
-      '<div class="panel"><p>' + due.length + (due.length === 1 ? ' música com revisão pendente.' : ' músicas com revisão pendente.') + '</p>' +
-      '<button class="btn btn-sm" data-action="goto-practice">Abrir revisões</button></div></div>';
+    html += '</aside></div>';
 
     container.innerHTML = html;
   }
@@ -846,15 +875,29 @@
     var total = today - start + 1;
     while (total % 7 !== 0) { cells += '<span class="cal-cell cal-pad"></span>'; total++; }
 
+    var monthMarks = [];
     for (var i = 0; i < columns; i++) {
       var md = new Date((start + i * 7) * SRS.MS_PER_DAY);
       var m = md.toLocaleDateString('pt-BR', { timeZone: 'UTC', month: 'short' }).replace('.', '');
-      var show = m !== lastMonthLabel;
+      if (m !== lastMonthLabel) monthMarks.push({ col: i, label: m });
       lastMonthLabel = m;
-      months += '<span>' + (show ? m : '') + '</span>';
+    }
+    // Evita rótulos colados (ex.: "JunJul") quando um mês tem só uma coluna.
+    var shownMonths = [];
+    monthMarks.forEach(function (mark) {
+      var prev = shownMonths[shownMonths.length - 1];
+      if (prev && mark.col - prev.col < 2) shownMonths[shownMonths.length - 1] = mark;
+      else shownMonths.push(mark);
+    });
+    for (var mi = 0; mi < columns; mi++) {
+      var label = '';
+      for (var si = 0; si < shownMonths.length; si++) {
+        if (shownMonths[si].col === mi) { label = shownMonths[si].label; break; }
+      }
+      months += '<span>' + label + '</span>';
     }
 
-    var cols = 'grid-template-columns:repeat(' + columns + ',minmax(0,1fr))';
+    var cols = 'grid-template-columns:repeat(' + columns + ',var(--cal-cell-size,15px))';
     var totalEvents = (events || []).length;
     var activeDays = Object.keys(byDay).length;
     return '<div class="calendar">' +
@@ -914,6 +957,20 @@
       }).join('') + '</select>' +
       '<label class="check-filter"><input type="checkbox" id="filterDue"' + (songFilters.dueOnly ? ' checked' : '') +
       '> Só revisões pendentes</label>' +
+      '<select id="sortSelect" class="search sort-select" aria-label="Ordenar músicas">' +
+      [
+        ['title', 'asc', 'Título (A–Z)'],
+        ['title', 'desc', 'Título (Z–A)'],
+        ['singer', 'asc', 'Cantor (A–Z)'],
+        ['genre', 'asc', 'Gênero (A–Z)'],
+        ['key', 'asc', 'Tom (A–Z)'],
+        ['duration', 'asc', 'Duração (menor)'],
+        ['review', 'asc', 'Revisão mais próxima'],
+        ['created', 'desc', 'Adicionadas recentemente']
+      ].map(function (opt) {
+        var selected = songFilters.sort === opt[0] && songFilters.dir === opt[1] ? ' selected' : '';
+        return '<option value="' + opt[0] + ':' + opt[1] + '"' + selected + '>' + opt[2] + '</option>';
+      }).join('') + '</select>' +
       '</div>';
 
     var list = state.songs.filter(function (s) {
@@ -1008,7 +1065,9 @@
     var html = '<div class="song-summary">' +
       '<div class="summary-top">' +
       '<div class="summary-top-main">' +
-      (cover ? '<img class="summary-cover" src="' + escapeHtml(cover) + '" alt="" loading="lazy">' : '') +
+      (cover
+        ? '<img class="summary-cover" src="' + escapeHtml(cover) + '" alt="" loading="lazy">'
+        : '<span class="summary-cover summary-cover-placeholder" aria-hidden="true">&#9834;</span>') +
       '<div><h1 class="summary-title">' + escapeHtml(song.title) + '</h1>' +
       '<p class="view-subtitle">' + escapeHtml(singerName(song.singerId)) +
       ' · Adicionada em ' + formatDateTime(song.createdAt) + '</p></div></div>' +
@@ -1042,7 +1101,7 @@
 
     // 2. Atividade da música (seção expansível)
     html += '<details class="activity-details"><summary>Atividade da música</summary>' +
-      '<div class="panel">' + activityCalendar(songActivityEvents(song), 16) + '</div></details>';
+      '<div class="panel">' + activityCalendar(songActivityEvents(song), 26) + '</div></details>';
 
     // 3. Letra
     html += '<div class="section lyrics-section"><h2 class="section-title">Letra da música</h2>' +
@@ -2077,7 +2136,11 @@
     if (e.target.id === 'filterSinger') songFilters.singer = e.target.value;
     else if (e.target.id === 'filterGenre') songFilters.genre = e.target.value;
     else if (e.target.id === 'filterDue') songFilters.dueOnly = e.target.checked;
-    else return;
+    else if (e.target.id === 'sortSelect') {
+      var parts = e.target.value.split(':');
+      songFilters.sort = parts[0];
+      songFilters.dir = parts[1] === 'desc' ? 'desc' : 'asc';
+    } else return;
     renderSongs($('#viewContainer'), $('#topbarActions'));
   });
 
