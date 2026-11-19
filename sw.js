@@ -5,7 +5,7 @@
  * ========================================================================= */
 'use strict';
 
-var CACHE_NAME = 'tocado-shell-v14';
+var CACHE_NAME = 'tocado-shell-v15';
 var APP_SHELL = [
   './',
   './index.html',

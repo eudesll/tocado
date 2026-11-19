@@ -36,7 +36,7 @@ js/storage.js         Persistência, sanitização e migração
 js/spaced-repetition.js  SM-2, agendamento e domínio
 js/app.js             Telas e interações
 js/*.js               HTTP, fotos, tom, letra e YouTube
-icons/                Ícone do app (violão) e PNGs do PWA
+icons/                Ícone do app (clave de sol) e PNGs do PWA
 sw.js                 Cache do app shell
 tests/                Testes com node:test
 ```
