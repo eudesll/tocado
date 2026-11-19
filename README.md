@@ -262,8 +262,9 @@ Esta lista existe apenas neste documento; a interface não exibe mais a seção 
     artista, útil para repertórios grandes em telas pequenas.
 16. **Arrastar para reordenar o setlist** — ordenação manual das músicas de uma sessão
     ou apresentação, com salvamento da ordem.
-17. ~~Modo palco~~ — base entregue na Fase 1 (tela cheia, letra grande, navegação por
-    teclado e controle de tamanho). Próximo: rolagem automática e cifras.
+17. ~~Modo palco~~ — entregue com **setlists**: várias listas de músicas do repertório,
+    reordenação, letra grande, navegação por teclado e controle de tamanho. Próximo:
+    rolagem automática e cifras.
 18. **Personalização de densidade e cor de destaque** — opções de espaçamento
     compacto/confortável e troca da cor de acento, persistidas por usuário.
 19. **Estados de carregamento e esqueleto** — placeholders durante buscas automáticas
